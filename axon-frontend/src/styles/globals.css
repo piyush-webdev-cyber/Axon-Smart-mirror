@@ -1,0 +1,67 @@
+@import "./themes.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    margin: 0;
+    /* Smooth theme transitions */
+    transition:
+      background-color 0.4s ease,
+      color 0.4s ease;
+    /* Mirror kiosk: never let content overflow or scroll unexpectedly */
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Respect users / installations that prefer reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer utilities {
+  /* Soft glow used by intelligent UI accents, driven by the theme --glow token */
+  .text-glow {
+    text-shadow: 0 0 24px hsl(var(--glow) / 0.45);
+  }
+
+  .ring-glow {
+    box-shadow: 0 0 32px hsl(var(--glow) / 0.35);
+  }
+
+  /* Fluid type scale - legible from 3-4 meters, adapts to any display */
+  .text-fluid-sm {
+    font-size: clamp(0.75rem, 0.6rem + 0.6vw, 1.1rem);
+  }
+  .text-fluid-base {
+    font-size: clamp(0.95rem, 0.8rem + 0.8vw, 1.5rem);
+  }
+  .text-fluid-lg {
+    font-size: clamp(1.5rem, 1rem + 2vw, 3rem);
+  }
+  .text-fluid-xl {
+    font-size: clamp(2.5rem, 1.5rem + 5vw, 7rem);
+  }
+}

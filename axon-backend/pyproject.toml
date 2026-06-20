@@ -1,0 +1,17 @@
+[project]
+name = "axon-backend"
+version = "0.1.0"
+description = "Axon AI Smart Mirror - backend API (Phase 1 foundation)"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+ignore = ["B008"] # FastAPI uses function calls (Depends/Query) in defaults
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
