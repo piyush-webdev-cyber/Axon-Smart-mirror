@@ -46,12 +46,74 @@
   .text-glow {
     text-shadow: 0 0 24px hsl(var(--glow) / 0.45);
   }
+  .text-glow-soft {
+    text-shadow: 0 0 18px hsl(var(--glow) / 0.25);
+  }
+  .text-glow-strong {
+    text-shadow:
+      0 0 18px hsl(var(--glow) / 0.5),
+      0 0 48px hsl(var(--glow) / 0.3);
+  }
 
   .ring-glow {
     box-shadow: 0 0 32px hsl(var(--glow) / 0.35);
   }
+  .ring-glow-strong {
+    box-shadow:
+      0 0 0 1px hsl(var(--glow) / 0.35),
+      0 0 40px hsl(var(--glow) / 0.45),
+      0 0 90px hsl(var(--glow) / 0.25);
+  }
 
-  /* Fluid type scale - legible from 3-4 meters, adapts to any display */
+  /* Premium floating glass surface - the calm panel language of the mirror.
+     Layered translucency + hairline highlight, no heavy borders or shadows. */
+  .glass-surface {
+    background: linear-gradient(
+      150deg,
+      hsl(var(--surface) / 0.55),
+      hsl(var(--surface-muted) / 0.35)
+    );
+    border: 1px solid hsl(var(--foreground) / 0.06);
+    box-shadow:
+      inset 0 1px 0 hsl(var(--foreground) / 0.06),
+      0 24px 60px -30px hsl(0 0% 0% / 0.7);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  /* Radial intelligence glow used behind hero content + ambient backdrop. */
+  .bg-glow-radial {
+    background: radial-gradient(
+      circle at center,
+      hsl(var(--glow) / 0.18),
+      transparent 70%
+    );
+  }
+
+  /* Living AI presence: a slow conic shimmer that orbits the assistant core,
+     signalling an always-on intelligence even at rest. Pair with a rotation
+     animation + blur so it reads as a breathing halo, not a hard gradient. */
+  .ai-aura {
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      hsl(var(--glow) / 0.6) 55deg,
+      transparent 150deg,
+      transparent 205deg,
+      hsl(var(--accent) / 0.5) 285deg,
+      transparent 360deg
+    );
+  }
+
+  /* GPU compositing hint for animated layers (keeps Pi at 60 FPS). */
+  .gpu {
+    will-change: transform, opacity;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+  }
+
+  /* Legacy fluid type scale (Phase 1). Retained for backward compatibility;
+     new work uses the semantic scale: text-display-xl ... text-caption. */
   .text-fluid-sm {
     font-size: clamp(0.75rem, 0.6rem + 0.6vw, 1.1rem);
   }

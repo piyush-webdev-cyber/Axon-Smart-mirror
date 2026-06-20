@@ -1,71 +1,162 @@
-import { Mic, Loader2, Volume2, AudioLines } from "lucide-react";
+import { Mic } from "lucide-react";
 import { cn } from "@/utils/cn";
 import type { VoiceState } from "@/types/voice";
 import { useVoiceController } from "./useVoiceController";
 
-const STATE_CONFIG: Record<
-  VoiceState,
-  { label: string; ring: string; icon: typeof Mic; iconClass?: string }
-> = {
-  idle: {
-    label: "Tap to speak",
-    ring: "bg-secondary/60 border-border/60",
-    icon: Mic,
-  },
-  listening: {
-    label: "Listening",
-    ring: "bg-primary/20 border-primary/70 ring-glow",
-    icon: AudioLines,
-    iconClass: "text-primary",
-  },
-  processing: {
-    label: "Thinking",
-    ring: "bg-accent/20 border-accent/70",
-    icon: Loader2,
-    iconClass: "text-accent animate-spin",
-  },
-  speaking: {
-    label: "Speaking",
-    ring: "bg-primary/20 border-primary/70 ring-glow",
-    icon: Volume2,
-    iconClass: "text-primary",
-  },
+const STATE_LABEL: Record<VoiceState, string> = {
+  idle: "Ask Axon",
+  listening: "Listening",
+  processing: "Thinking",
+  speaking: "Speaking",
 };
 
+/** Five-bar pseudo-waveform for the speaking state (transform-only). */
+const WAVE_BARS = [
+  { delay: "0ms", height: "40%" },
+  { delay: "120ms", height: "74%" },
+  { delay: "60ms", height: "100%" },
+  { delay: "180ms", height: "66%" },
+  { delay: "240ms", height: "46%" },
+];
+
 /**
- * Bottom-center region. The signature voice control for Axon.
- *
- * Phase 1 ships the full state machine and visuals (idle / listening /
- * processing / speaking). Phase 3 connects real audio to the same transitions.
+ * Bottom-center region. Axon's living core - the visual focal point and most
+ * important surface in the product. Even at rest it breathes and its aura
+ * slowly orbits, so the mirror reads as an awake intelligence rather than a
+ * static control. Phase 2 ships all four visual states; Phase 3 wires real
+ * audio into the same FSM (see useVoiceController). Motion is transform/opacity
+ * only for 60 FPS on the Pi.
  */
 export function MicButton() {
   const { state, press } = useVoiceController();
-  const config = STATE_CONFIG[state];
-  const Icon = config.icon;
-  const active = state === "listening" || state === "speaking";
+  const label = STATE_LABEL[state];
+
+  const isIdle = state === "idle";
+  const isListening = state === "listening";
+  const isProcessing = state === "processing";
+  const isSpeaking = state === "speaking";
+  const isActive = isListening || isSpeaking;
 
   return (
-    <div className="flex flex-col items-center gap-3">
+    <div className="flex flex-col items-center gap-2">
       <button
         type="button"
         onClick={press}
-        aria-label={config.label}
-        aria-pressed={active}
+        aria-label={label}
+        aria-pressed={isActive}
         className={cn(
-          "relative flex h-20 w-20 items-center justify-center rounded-full border backdrop-blur-xl transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-95",
-          config.ring,
+          "group relative grid place-items-center rounded-full",
+          "h-[clamp(3.05rem,5vw,4rem)] w-[clamp(3.05rem,5vw,4rem)]",
+          "transition-transform duration-300 ease-out active:scale-[0.97]",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background",
         )}
       >
-        {active && (
-          <span className="absolute inset-0 rounded-full bg-primary/30 animate-pulse-ring" />
-        )}
-        <Icon
-          className={cn("size-8", config.iconClass)}
-          strokeWidth={1.5}
+        {/* Subtle living aura, intentionally restrained to match the reference. */}
+        <span
+          aria-hidden
+          className={cn(
+            "ai-aura absolute -inset-[36%] rounded-full blur-xl gpu animate-[orbit_20s_linear_infinite] transition-opacity duration-700",
+            isActive ? "opacity-75" : isProcessing ? "opacity-62" : "opacity-35",
+          )}
         />
+
+        {/* Tiny side glints like the screenshot's peripheral spark points. */}
+        <span aria-hidden className="absolute -left-2.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-accent/80 blur-[1px]" />
+        <span aria-hidden className="absolute -right-2.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-primary/80 blur-[1px]" />
+
+        {/* Soft radial bloom anchoring the core */}
+        <span
+          aria-hidden
+          className={cn(
+            "absolute -inset-[12%] -z-10 rounded-full bg-glow-radial blur-md transition-opacity duration-500",
+            isActive ? "opacity-90 animate-glow-pulse" : "opacity-45",
+          )}
+        />
+
+        {/* Core disc */}
+        <span
+          aria-hidden
+          className={cn(
+            "glass-surface absolute inset-0 rounded-full transition-shadow duration-500",
+            isIdle && "animate-breathe",
+            isListening && "ring-glow",
+            isSpeaking && "ring-glow",
+          )}
+        />
+
+        {/* Hairline presence ring */}
+        <span
+          aria-hidden
+          className="absolute inset-0 rounded-full border border-content/10"
+        />
+
+        {/* LISTENING: concentric pulsing rings */}
+        {isListening && (
+          <>
+            <span
+              aria-hidden
+              className="absolute inset-0 rounded-full border border-primary/70 animate-pulse-ring gpu"
+            />
+            <span
+              aria-hidden
+              className="absolute inset-0 rounded-full border border-primary/40 animate-pulse-ring gpu [animation-delay:0.9s]"
+            />
+          </>
+        )}
+
+        {/* PROCESSING: dual orbit with leading comet dots */}
+        {isProcessing && (
+          <>
+            <span
+              aria-hidden
+              className="absolute inset-[-4%] rounded-full animate-orbit gpu"
+            >
+              <span className="absolute left-1/2 top-0 size-1.5 -translate-x-1/2 rounded-full bg-accent ring-glow" />
+            </span>
+            <span
+              aria-hidden
+              className="absolute inset-[12%] rounded-full animate-orbit-reverse gpu"
+            >
+              <span className="absolute bottom-0 left-1/2 size-1 -translate-x-1/2 rounded-full bg-primary/80" />
+            </span>
+          </>
+        )}
+
+        {/* Foreground content per state */}
+        {isSpeaking ? (
+          <span
+            aria-hidden
+            className="relative flex h-[34%] items-center justify-center gap-[0.14rem]"
+          >
+            {WAVE_BARS.map((bar, i) => (
+              <span
+                key={i}
+                className="w-[0.1rem] rounded-full bg-primary animate-wave gpu"
+                style={{ height: bar.height, animationDelay: bar.delay }}
+              />
+            ))}
+          </span>
+        ) : (
+          <Mic
+            className={cn(
+              "relative size-[40%] transition-colors duration-300",
+              isListening ? "text-primary" : "text-content",
+              isProcessing && "opacity-40",
+            )}
+            strokeWidth={1.5}
+            aria-hidden
+          />
+        )}
       </button>
-      <span className="text-fluid-sm font-light tracking-wide text-muted-foreground">
-        {config.label}
+
+      <span
+        key={state}
+        className={cn(
+          "text-caption animate-fade-in transition-colors",
+          isActive ? "text-content" : "text-content-muted",
+        )}
+      >
+        {label}
       </span>
     </div>
   );
