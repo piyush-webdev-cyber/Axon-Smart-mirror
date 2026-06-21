@@ -13,6 +13,7 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 OPENWEATHER_URL = "https://api.openweathermap.org/data/2.5/weather"
+IPWHO_URL = "https://ipwho.is"
 
 
 def _map_condition(code: int) -> tuple[str, str]:
@@ -48,6 +49,59 @@ async def fetch_current_weather(lat: float, lon: float) -> dict:
         "units": "metric",
     }
 
+    return await _request_openweather(params)
+
+
+async def fetch_coords_from_client_ip(client_ip: str | None) -> tuple[float, float]:
+    """Resolve approximate lat/lon from the mirror's public IP (city-level)."""
+    ip = (client_ip or "").strip()
+    if ip in {"", "127.0.0.1", "::1", "localhost"}:
+        url = f"{IPWHO_URL}/"
+    else:
+        url = f"{IPWHO_URL}/{ip}"
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(url)
+    except httpx.HTTPError as exc:
+        logger.warning("IP geolocation request failed: %s", exc)
+        raise AxonError("Unable to detect location.", status_code=502) from exc
+
+    if response.status_code != 200:
+        raise AxonError("Unable to detect location.", status_code=502)
+
+    payload = response.json()
+    if not payload.get("success"):
+        raise AxonError("Unable to detect location.", status_code=502)
+
+    return float(payload["latitude"]), float(payload["longitude"])
+
+
+async def fetch_weather_for_client_ip(client_ip: str | None) -> dict:
+    """Weather for the requesting device based on its public IP."""
+    lat, lon = await fetch_coords_from_client_ip(client_ip)
+    return await fetch_current_weather(lat, lon)
+
+
+async def fetch_weather_by_city(city: str) -> dict:
+    """Fetch weather by city name (e.g. ``Delhi,IN``)."""
+    if not settings.openweather_api_key:
+        raise AxonError("Weather API is not configured.", status_code=503)
+
+    query = city.strip()
+    if not query:
+        raise AxonError("City is required.", status_code=400)
+
+    params = {
+        "q": query,
+        "appid": settings.openweather_api_key,
+        "units": "metric",
+    }
+
+    return await _request_openweather(params)
+
+
+async def _request_openweather(params: dict) -> dict:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(OPENWEATHER_URL, params=params)
@@ -62,6 +116,10 @@ async def fetch_current_weather(lat: float, lon: float) -> dict:
         raise AxonError("Weather data is unavailable.", status_code=502)
 
     payload = response.json()
+    return _normalize_openweather_payload(payload)
+
+
+def _normalize_openweather_payload(payload: dict) -> dict:
     weather_entry = (payload.get("weather") or [{}])[0]
     main = payload.get("main") or {}
     sys_info = payload.get("sys") or {}

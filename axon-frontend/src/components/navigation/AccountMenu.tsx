@@ -65,10 +65,10 @@ export function AccountMenu() {
   };
 
   return (
-    <div ref={rootRef} className="relative mt-auto">
+    <div ref={rootRef} className="relative mt-auto w-full min-w-0">
       {open && isAuthenticated && (
         <div
-          className="absolute bottom-full left-0 z-50 mb-2 w-[13.5rem] rounded-2xl border border-white/15 bg-surface/95 p-4 shadow-xl backdrop-blur-xl animate-fade-in"
+          className="absolute bottom-full left-0 z-50 mb-2 w-full max-w-[14rem] rounded-2xl border border-white/15 bg-surface/95 p-4 shadow-xl backdrop-blur-xl animate-fade-in"
           role="dialog"
           aria-label="Account details"
         >
@@ -88,14 +88,14 @@ export function AccountMenu() {
           )}
 
           {accountEmail && (
-            <div className="mb-3">
+            <div className="mb-3 min-w-0">
               <p className="text-[10px] uppercase tracking-wide text-text-secondary">Email</p>
               <p className="break-all text-caption text-foreground">{accountEmail}</p>
             </div>
           )}
 
           {accountId && (
-            <div className="mb-4">
+            <div className="mb-4 min-w-0">
               <p className="text-[10px] uppercase tracking-wide text-text-secondary">User ID</p>
               <p className="break-all font-mono text-[10px] text-text-secondary">{accountId}</p>
             </div>
@@ -119,22 +119,18 @@ export function AccountMenu() {
           else handleConnect();
         }}
         className={cn(
-          "group flex w-full flex-col gap-0.5 rounded-full border border-white/15 bg-white/5 px-4 py-2.5 text-left text-white transition-all duration-300",
+          "group flex w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-full border border-white/15 bg-white/5 px-4 py-2.5 text-left text-white transition-all duration-300",
           "hover:border-primary/35 hover:bg-primary/10 hover:ring-glow",
           open && isAuthenticated && "border-primary/35 bg-primary/10 ring-glow",
         )}
         aria-expanded={open}
         aria-haspopup="dialog"
+        aria-label={accountLabel}
       >
-        <span className="flex items-center gap-2.5">
-          <UserRound className="size-4 shrink-0 text-white" strokeWidth={1.7} />
-          <span className="truncate text-sm font-light tracking-wide text-white">
-            {accountLabel}
-          </span>
+        <UserRound className="size-4 shrink-0 text-white" strokeWidth={1.7} />
+        <span className="min-w-0 truncate text-sm font-light tracking-wide text-white">
+          {accountLabel}
         </span>
-        {isAuthenticated && accountEmail && (
-          <span className="truncate pl-6 text-[10px] text-text-secondary">{accountEmail}</span>
-        )}
       </button>
     </div>
   );

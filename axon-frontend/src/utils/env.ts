@@ -10,7 +10,18 @@ interface AxonEnv {
   wsUrl: string;
   /** LAN-reachable mirror URL for phone QR (e.g. http://192.168.1.5:5173) */
   publicMirrorUrl: string;
+  /** Fallback weather city when geolocation is unavailable (e.g. Delhi,IN) */
+  weatherCity: string;
+  weatherLat: number | null;
+  weatherLon: number | null;
   isDev: boolean;
+}
+
+function readOptionalFloat(key: string): number | null {
+  const raw = read(key);
+  if (!raw.trim()) return null;
+  const value = Number.parseFloat(raw);
+  return Number.isFinite(value) ? value : null;
 }
 
 function read(key: string, fallback = ""): string {
@@ -64,6 +75,9 @@ export const env: AxonEnv = {
   apiBaseUrl: read("VITE_API_BASE_URL", "/api/v1"),
   wsUrl: toWebSocketUrl(read("VITE_WS_URL", "/api/v1/ws")),
   publicMirrorUrl: read("VITE_PUBLIC_MIRROR_URL"),
+  weatherCity: read("VITE_WEATHER_CITY"),
+  weatherLat: readOptionalFloat("VITE_WEATHER_LAT"),
+  weatherLon: readOptionalFloat("VITE_WEATHER_LON"),
   isDev: import.meta.env.DEV,
 };
 

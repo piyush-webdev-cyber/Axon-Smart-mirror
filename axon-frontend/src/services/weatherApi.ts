@@ -73,3 +73,16 @@ export async function fetchCurrentWeather(
   const data = (await response.json()) as Record<string, unknown>;
   return normalizeSnapshot(data);
 }
+
+/** Weather for the caller's location — backend resolves lat/lon from public IP. */
+export async function fetchCurrentWeatherAuto(): Promise<WeatherSnapshot> {
+  const response = await fetch(`${API_BASE}/weather/current`);
+
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => null);
+    throw new Error(parseApiError(body, "Failed to load weather"));
+  }
+
+  const data = (await response.json()) as Record<string, unknown>;
+  return normalizeSnapshot(data);
+}

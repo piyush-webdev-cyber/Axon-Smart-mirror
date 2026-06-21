@@ -34,7 +34,7 @@ export function Sidebar() {
           <ClockWidget />
         </div>
 
-        <nav aria-label="Primary" className="flex flex-1 flex-col">
+        <nav aria-label="Primary" className="flex min-h-0 flex-1 flex-col">
           <ul className="grid w-full gap-2">
             {NAV_ITEMS.map((item) => (
               <li key={item.label}>

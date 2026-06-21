@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, session } = require("electron");
 const path = require("node:path");
 const { createSettingsStore } = require("./settingsStore");
 
@@ -76,6 +76,15 @@ function applyAutoLaunch(enabled) {
 
 app.whenReady().then(() => {
   store = createSettingsStore();
+
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    if (permission === "geolocation" || permission === "media") {
+      callback(true);
+      return;
+    }
+    callback(false);
+  });
+
   applyAutoLaunch(Boolean(store.get("autoLaunch")));
 
   ipcMain.handle("axon-shell:is-electron", () => true);
