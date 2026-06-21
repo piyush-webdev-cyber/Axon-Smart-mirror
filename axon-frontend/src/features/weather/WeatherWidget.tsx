@@ -38,6 +38,18 @@ const UNIT_SYMBOL = { celsius: "C", fahrenheit: "F" } as const;
 export function WeatherWidget() {
   const { data, status } = useWeather();
 
+  if (status === "loading") {
+    return (
+      <div className="flex items-center gap-3 text-right">
+        <div className="flex flex-col items-end">
+          <span className="text-display-lg tabular-nums text-content-muted">…</span>
+          <span className="text-caption uppercase text-content-muted">Loading weather</span>
+        </div>
+        <Cloud className="size-9 animate-pulse text-content-muted" strokeWidth={1.25} />
+      </div>
+    );
+  }
+
   if (status !== "ready" || !data) {
     return (
       <div className="flex items-center gap-3 text-right">

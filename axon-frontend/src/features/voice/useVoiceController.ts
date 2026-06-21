@@ -1,41 +1,37 @@
 import { useCallback } from "react";
 import { useAppStore } from "@/store";
 import type { VoiceState } from "@/types/voice";
+import { triggerVoiceCancel, triggerVoiceWake } from "./voiceEngine";
 
 interface VoiceController {
   state: VoiceState;
-  /** Primary press action. Phase 1 only drives FSM transitions (no audio). */
+  micReady: boolean;
+  wakeActive: boolean;
+  transcript: string;
+  reply: string;
+  /** Manual fallback only — wake word is primary. */
   press: () => void;
 }
 
-/**
- * Bridges the mic button UI to the voice FSM in the store.
- *
- * Phase 1: a press simply advances the state machine so transitions and visuals
- * can be validated. Phase 3 replaces `press` with real wake-word / STT / TTS
- * pipelines that dispatch the same events (startListening, stopListening,
- * responseReady, done).
- */
 export function useVoiceController(): VoiceController {
   const state = useAppStore((s) => s.voiceState);
-  const dispatch = useAppStore((s) => s.dispatchVoiceEvent);
+  const micReady = useAppStore((s) => s.voiceMicReady);
+  const wakeActive = useAppStore((s) => s.voiceWakeActive);
+  const transcript = useAppStore((s) => s.voiceTranscript);
+  const reply = useAppStore((s) => s.voiceReply);
 
   const press = useCallback(() => {
     switch (state) {
       case "idle":
-        dispatch("startListening");
+        triggerVoiceWake();
         break;
       case "listening":
-        dispatch("stopListening");
-        break;
       case "processing":
-        dispatch("responseReady");
-        break;
       case "speaking":
-        dispatch("done");
+        triggerVoiceCancel();
         break;
     }
-  }, [state, dispatch]);
+  }, [state]);
 
-  return { state, press };
+  return { state, micReady, wakeActive, transcript, reply, press };
 }

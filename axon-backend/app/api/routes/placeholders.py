@@ -37,8 +37,7 @@ def _make_placeholder(prefix: str, tag: str, feature: str, phase: int) -> APIRou
     return router
 
 
-voice_router = _make_placeholder("/voice", "voice", "Voice Assistant", phase=3)
-photos_router = _make_placeholder("/photos", "photos", "Photos", phase=4)
+photos_router = _make_placeholder("/photos-legacy", "photos-legacy", "Photos Legacy", phase=4)
 interviews_router = _make_placeholder(
     "/interviews", "interviews", "InterviewGPT", phase=5
 )
@@ -46,7 +45,6 @@ face_router = _make_placeholder("/face", "face", "Face Recognition", phase=4)
 music_router = _make_placeholder("/music", "music", "Music Playback", phase=6)
 
 placeholder_routers = [
-    voice_router,
     photos_router,
     interviews_router,
     face_router,

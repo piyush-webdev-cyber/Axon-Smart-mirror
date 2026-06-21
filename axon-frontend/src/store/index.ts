@@ -6,6 +6,7 @@ import {
 } from "./slices/connectionSlice";
 import { createVoiceSlice, type VoiceSlice } from "./slices/voiceSlice";
 import { createSystemSlice, type SystemSlice } from "./slices/systemSlice";
+import { createCameraSlice, type CameraSlice } from "./slices/cameraSlice";
 
 /**
  * Root client store, composed from feature slices. Server state lives in
@@ -17,11 +18,13 @@ import { createSystemSlice, type SystemSlice } from "./slices/systemSlice";
 export type AppStore = ThemeSlice &
   ConnectionSlice &
   VoiceSlice &
-  SystemSlice;
+  SystemSlice &
+  CameraSlice;
 
 export const useAppStore = create<AppStore>()((...args) => ({
   ...createThemeSlice(...args),
   ...createConnectionSlice(...args),
   ...createVoiceSlice(...args),
   ...createSystemSlice(...args),
+  ...createCameraSlice(...args),
 }));

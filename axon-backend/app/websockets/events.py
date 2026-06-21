@@ -17,9 +17,33 @@ class WsEvent(StrEnum):
     PONG = "system.pong"
     DEVICE_STATUS = "device.status"
 
-    # Reserved for future phases
-    VOICE_STATE = "voice.state"
+    # Phase 3 events
+    DEVICE_LINKED = "device.linked"
+    DEVICE_EXPIRED = "device.expired"
+    PHOTO_CREATED = "photo.created"
+    PHOTO_DELETED = "photo.deleted"
+    PHOTO_CAPTURE_STARTED = "photo.capture_started"
+    PHOTO_CAPTURE_COMPLETED = "photo.capture_completed"
+    PHOTO_UPLOAD_STARTED = "photo.upload_started"
+    PHOTO_UPLOAD_COMPLETED = "photo.upload_completed"
+    GALLERY_OPENED = "gallery.opened"
+    GALLERY_CLOSED = "gallery.closed"
+
+    # Phase 4 — Voice assistant
+    VOICE_WAKE_DETECTED = "voice.wake_detected"
+    VOICE_WAKE = "voice.wake"
+    VOICE_LISTENING = "voice.listening"
     VOICE_TRANSCRIPT = "voice.transcript"
+    VOICE_PROCESSING = "voice.processing"
+    VOICE_RESPONSE = "voice.response"
+    VOICE_SPEAKING = "voice.speaking"
+    VOICE_COMPLETE = "voice.complete"
+    VOICE_PROCESS = "voice.process"
+
+    # Legacy aliases (kept for backward compatibility)
+    VOICE_STATE = "voice.state"
+
+    # Reserved for future phases
     INTERVIEW_MESSAGE = "interview.message"
     FACE_DETECTED = "face.detected"
     MUSIC_STATE = "music.state"

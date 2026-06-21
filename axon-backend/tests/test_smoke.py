@@ -29,7 +29,30 @@ def test_protected_requires_auth() -> None:
     assert res.json()["error"]["code"] == "unauthorized"
 
 
-def test_placeholder_returns_501() -> None:
-    res = client.post("/api/v1/voice")
-    assert res.status_code == 501
-    assert res.json()["error"]["code"] == "not_implemented"
+def test_voice_process_time() -> None:
+    res = client.post(
+        "/api/v1/voice/process",
+        json={"transcript": "Nexa, what time is it"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert "reply" in body
+    assert body.get("action") is None
+
+
+def test_voice_take_photo() -> None:
+    res = client.post(
+        "/api/v1/voice/process",
+        json={"transcript": "Nexa, take a photo"},
+    )
+    assert res.status_code == 200
+    assert res.json()["action"] == "take_photo"
+
+
+def test_voice_show_gallery_qr() -> None:
+    res = client.post(
+        "/api/v1/voice/process",
+        json={"transcript": "Nexa, show my photos"},
+    )
+    assert res.status_code == 200
+    assert res.json()["action"] == "show_gallery_qr"

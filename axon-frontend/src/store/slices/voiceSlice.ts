@@ -16,8 +16,20 @@ const TRANSITIONS: Record<VoiceState, Partial<Record<VoiceEvent, VoiceState>>> =
 
 export interface VoiceSlice {
   voiceState: VoiceState;
+  /** Microphone unlocked via user gesture. */
+  voiceMicReady: boolean;
+  /** Wake-word listener is actively running. */
+  voiceWakeActive: boolean;
+  /** Live STT text shown under the mic. */
+  voiceTranscript: string;
+  /** Last assistant reply (spoken + displayed). */
+  voiceReply: string;
   /** Dispatch an FSM event. No-op if the transition is not allowed. */
   dispatchVoiceEvent: (event: VoiceEvent) => void;
+  setVoiceMicReady: (ready: boolean) => void;
+  setVoiceWakeActive: (active: boolean) => void;
+  setVoiceTranscript: (text: string) => void;
+  setVoiceReply: (text: string) => void;
   resetVoice: () => void;
 }
 
@@ -25,10 +37,25 @@ export const createVoiceSlice: StateCreator<VoiceSlice, [], [], VoiceSlice> = (
   set,
 ) => ({
   voiceState: "idle",
+  voiceMicReady: false,
+  voiceWakeActive: false,
+  voiceTranscript: "",
+  voiceReply: "",
   dispatchVoiceEvent: (event) =>
     set((state) => {
       const next = TRANSITIONS[state.voiceState][event];
       return next ? { voiceState: next } : state;
     }),
-  resetVoice: () => set({ voiceState: "idle" }),
+  setVoiceMicReady: (ready) => set({ voiceMicReady: ready }),
+  setVoiceWakeActive: (active) => set({ voiceWakeActive: active }),
+  setVoiceTranscript: (text) => set({ voiceTranscript: text }),
+  setVoiceReply: (text) => set({ voiceReply: text }),
+  resetVoice: () =>
+    set({
+      voiceState: "idle",
+      voiceMicReady: false,
+      voiceWakeActive: false,
+      voiceTranscript: "",
+      voiceReply: "",
+    }),
 });

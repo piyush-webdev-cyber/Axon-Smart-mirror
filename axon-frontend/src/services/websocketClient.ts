@@ -21,7 +21,6 @@ type StatusListener = (status: WsConnectionStatus) => void;
  */
 class WebSocketClient {
   private socket: WebSocket | null = null;
-  private url: string;
   private status: WsConnectionStatus = "idle";
 
   private reconnectAttempts = 0;
@@ -37,8 +36,11 @@ class WebSocketClient {
   private handlers = new Map<string, Set<WsHandler>>();
   private statusListeners = new Set<StatusListener>();
 
-  constructor(url: string) {
-    this.url = url;
+  constructor() {}
+
+  /** Resolve WS URL on each connect so dev env/HMR changes apply without reload. */
+  private getUrl(): string {
+    return env.wsUrl;
   }
 
   getStatus(): WsConnectionStatus {
@@ -60,7 +62,7 @@ class WebSocketClient {
     this.setStatus(this.reconnectAttempts > 0 ? "reconnecting" : "connecting");
 
     try {
-      this.socket = new WebSocket(this.url);
+      this.socket = new WebSocket(this.getUrl());
     } catch {
       this.scheduleReconnect();
       return;
@@ -202,4 +204,4 @@ class WebSocketClient {
   }
 }
 
-export const websocketClient = new WebSocketClient(env.wsUrl);
+export const websocketClient = new WebSocketClient();

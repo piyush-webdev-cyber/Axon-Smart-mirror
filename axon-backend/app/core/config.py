@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     # --- AI (reserved) -----------------------------------------------------
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
 
+    # --- Weather -----------------------------------------------------------
+    openweather_api_key: str = Field(default="", alias="OPENWEATHER_API_KEY")
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> list[str]:

@@ -29,16 +29,32 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    strictPort: true,
+    // Allow opening dev server from phone via LAN IP (Host header check)
+    allowedHosts: true,
+    hmr: {
+      // Phones on LAN use the same port; avoid hardcoding localhost for HMR
+      clientPort: 5173,
+    },
     proxy: {
       "/api": {
         target: "http://127.0.0.1:8010",
         changeOrigin: true,
         ws: true,
+        secure: false,
       },
     },
   },
   preview: {
     port: 4173,
     host: true,
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:8010",
+        changeOrigin: true,
+        ws: true,
+        secure: false,
+      },
+    },
   },
 });

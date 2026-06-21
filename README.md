@@ -96,7 +96,7 @@ folder's README).
 3. Implement the Supabase **device-linking** flow (mirror shows a code from
    `device_codes`; a phone confirms).
 4. Build the **Voice** feature module on the existing mic FSM + WebSocket events
-   (wake word "Axon", STT, TTS).
+   (wake word "Nexa", STT, TTS).
 5. Add the **Daily AI Coach** using the `ai/gemini.py` wrapper and the `goals`
    table.
 6. Add **Camera / Photos** (capture, storage uploads, QR sharing) and

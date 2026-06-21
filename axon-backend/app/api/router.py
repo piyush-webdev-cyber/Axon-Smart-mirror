@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.routes import auth, health, system, users
+from app.api.routes import auth, devices, gallery, health, photos, system, users, voice, weather
 from app.api.routes.placeholders import placeholder_routers
 
 api_router = APIRouter()
@@ -14,6 +14,13 @@ api_router.include_router(health.router)
 api_router.include_router(system.router)
 api_router.include_router(auth.router)
 api_router.include_router(users.router)
+
+# Phase 3 routers
+api_router.include_router(devices.router)
+api_router.include_router(photos.router)
+api_router.include_router(gallery.router)
+api_router.include_router(weather.router)
+api_router.include_router(voice.router)
 
 # Reserved future-feature placeholders (HTTP 501)
 for router in placeholder_routers:

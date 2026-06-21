@@ -1,8 +1,5 @@
 /**
  * Canonical WebSocket event-type registry shared by every feature.
- * Phase 1 only uses connection/system events; the rest are reserved so future
- * real-time features (voice, interview, face, music) plug in without changing
- * the transport layer.
  */
 export const WS_EVENTS = {
   // Active in Phase 1
@@ -11,9 +8,33 @@ export const WS_EVENTS = {
   pong: "system.pong",
   deviceStatus: "device.status",
 
-  // Reserved for future phases (handlers registered but inert in Phase 1)
-  voiceState: "voice.state",
+  // Phase 3 events
+  deviceLinked: "device.linked",
+  deviceExpired: "device.expired",
+  photoCreated: "photo.created",
+  photoDeleted: "photo.deleted",
+  photoCaptureStarted: "photo.capture_started",
+  photoCaptureCompleted: "photo.capture_completed",
+  photoUploadStarted: "photo.upload_started",
+  photoUploadCompleted: "photo.upload_completed",
+  galleryOpened: "gallery.opened",
+  galleryClosed: "gallery.closed",
+
+  // Phase 4 — Voice assistant
+  voiceWakeDetected: "voice.wake_detected",
+  voiceWake: "voice.wake",
+  voiceListening: "voice.listening",
   voiceTranscript: "voice.transcript",
+  voiceProcessing: "voice.processing",
+  voiceResponse: "voice.response",
+  voiceSpeaking: "voice.speaking",
+  voiceComplete: "voice.complete",
+  voiceProcess: "voice.process",
+
+  // Legacy alias
+  voiceState: "voice.state",
+
+  // Reserved for future phases
   interviewMessage: "interview.message",
   faceDetected: "face.detected",
   musicState: "music.state",

@@ -1,14 +1,25 @@
 import { Mic } from "lucide-react";
 import { cn } from "@/utils/cn";
+import { LISTENING_FOR_WAKE_LABEL, SAY_WAKE_WORD_LABEL } from "@/constants/voiceConfig";
 import type { VoiceState } from "@/types/voice";
 import { useVoiceController } from "./useVoiceController";
 
 const STATE_LABEL: Record<VoiceState, string> = {
-  idle: "Ask Axon",
-  listening: "Listening",
-  processing: "Thinking",
-  speaking: "Speaking",
+  idle: SAY_WAKE_WORD_LABEL,
+  listening: "Listening...",
+  processing: "Thinking...",
+  speaking: "Speaking...",
 };
+
+function getLabel(state: VoiceState, micReady: boolean, wakeActive: boolean): string {
+  if (!micReady && state === "idle") {
+    return "Allow microphone access";
+  }
+  if (wakeActive && state === "idle") {
+    return LISTENING_FOR_WAKE_LABEL;
+  }
+  return STATE_LABEL[state];
+}
 
 /** Five-bar pseudo-waveform for the speaking state (transform-only). */
 const WAVE_BARS = [
@@ -28,14 +39,15 @@ const WAVE_BARS = [
  * only for 60 FPS on the Pi.
  */
 export function MicButton() {
-  const { state, press } = useVoiceController();
-  const label = STATE_LABEL[state];
+  const { state, micReady, wakeActive, transcript, reply, press } = useVoiceController();
+  const label = getLabel(state, micReady, wakeActive);
 
   const isIdle = state === "idle";
   const isListening = state === "listening";
   const isProcessing = state === "processing";
   const isSpeaking = state === "speaking";
   const isActive = isListening || isSpeaking;
+  const isArmed = micReady && wakeActive && isIdle;
 
   return (
     <div className="flex flex-col items-center gap-2">
@@ -56,7 +68,7 @@ export function MicButton() {
           aria-hidden
           className={cn(
             "ai-aura absolute -inset-[36%] rounded-full blur-xl gpu animate-[orbit_20s_linear_infinite] transition-opacity duration-700",
-            isActive ? "opacity-75" : isProcessing ? "opacity-62" : "opacity-35",
+            isActive ? "opacity-75" : isProcessing ? "opacity-62" : isArmed ? "opacity-55" : "opacity-35",
           )}
         />
 
@@ -69,7 +81,7 @@ export function MicButton() {
           aria-hidden
           className={cn(
             "absolute -inset-[12%] -z-10 rounded-full bg-glow-radial blur-md transition-opacity duration-500",
-            isActive ? "opacity-90 animate-glow-pulse" : "opacity-45",
+            isActive ? "opacity-90 animate-glow-pulse" : isArmed ? "opacity-60 animate-glow-pulse" : "opacity-45",
           )}
         />
 
@@ -78,7 +90,7 @@ export function MicButton() {
           aria-hidden
           className={cn(
             "glass-surface absolute inset-0 rounded-full transition-shadow duration-500",
-            isIdle && "animate-breathe",
+            isIdle && (isArmed ? "animate-pulse-ring" : "animate-breathe"),
             isListening && "ring-glow",
             isSpeaking && "ring-glow",
           )}
@@ -91,16 +103,28 @@ export function MicButton() {
         />
 
         {/* LISTENING: concentric pulsing rings */}
-        {isListening && (
+        {(isListening || isArmed) && (
           <>
             <span
               aria-hidden
-              className="absolute inset-0 rounded-full border border-primary/70 animate-pulse-ring gpu"
+              className={cn(
+                "absolute inset-0 rounded-full border animate-pulse-ring gpu",
+                isListening ? "border-primary/70" : "border-primary/30",
+              )}
             />
             <span
               aria-hidden
-              className="absolute inset-0 rounded-full border border-primary/40 animate-pulse-ring gpu [animation-delay:0.9s]"
+              className={cn(
+                "absolute inset-0 rounded-full border animate-pulse-ring gpu [animation-delay:0.9s]",
+                isListening ? "border-primary/40" : "border-primary/20",
+              )}
             />
+            {isListening && (
+              <span
+                aria-hidden
+                className="absolute inset-[-8%] rounded-full border border-primary/25 animate-pulse-ring gpu [animation-delay:0.45s]"
+              />
+            )}
           </>
         )}
 
@@ -136,11 +160,27 @@ export function MicButton() {
               />
             ))}
           </span>
+        ) : isListening ? (
+          <span
+            aria-hidden
+            className="relative flex h-[34%] items-center justify-center gap-[0.12rem]"
+          >
+            {[0, 1, 2, 3, 4].map((i) => (
+              <span
+                key={i}
+                className="w-[0.1rem] rounded-full bg-primary animate-wave gpu"
+                style={{
+                  height: `${40 + (i % 3) * 22}%`,
+                  animationDelay: `${i * 90}ms`,
+                }}
+              />
+            ))}
+          </span>
         ) : (
           <Mic
             className={cn(
               "relative size-[40%] transition-colors duration-300",
-              isListening ? "text-primary" : "text-content",
+              isArmed ? "text-primary/80" : "text-content",
               isProcessing && "opacity-40",
             )}
             strokeWidth={1.5}
@@ -150,14 +190,23 @@ export function MicButton() {
       </button>
 
       <span
-        key={state}
+        key={`${state}-${micReady}`}
         className={cn(
           "text-caption animate-fade-in transition-colors",
-          isActive ? "text-content" : "text-content-muted",
+          isActive || isArmed ? "text-content" : "text-content-muted",
         )}
       >
         {label}
       </span>
+
+      {(transcript || reply) && (
+        <p
+          key={transcript || reply}
+          className="max-w-xs text-center text-caption text-content-muted animate-fade-in"
+        >
+          {state === "speaking" || state === "processing" ? reply || transcript : transcript}
+        </p>
+      )}
     </div>
   );
 }

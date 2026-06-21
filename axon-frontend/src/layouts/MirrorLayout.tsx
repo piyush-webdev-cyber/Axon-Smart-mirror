@@ -3,6 +3,7 @@ import { WeatherWidget } from "@/features/weather/WeatherWidget";
 import { MicButton } from "@/features/voice/MicButton";
 import { SystemStatusBar } from "@/features/system-status/SystemStatusBar";
 import { Sidebar } from "@/components/navigation/Sidebar";
+import { VoiceEffects } from "@/features/voice/VoiceEffects";
 
 /**
  * The canonical Axon mirror frame. A fluid CSS grid that adapts to any
@@ -18,6 +19,7 @@ import { Sidebar } from "@/components/navigation/Sidebar";
 export function MirrorLayout() {
   return (
     <div className="relative h-full w-full">
+      <VoiceEffects />
       <Sidebar />
 
       <div className="relative ml-[11rem] grid h-full w-[calc(100%-11rem)] grid-rows-[auto_1fr_auto] gap-3 p-[clamp(0.875rem,2.4vw,2.75rem)]">
@@ -34,7 +36,7 @@ export function MirrorLayout() {
         </header>
 
         {/* Center: dynamic content area, weighted toward the assistant below */}
-        <main className="flex min-h-0 items-center justify-center overflow-hidden">
+        <main className="flex min-h-0 items-center justify-center overflow-visible">
           <Outlet />
         </main>
 

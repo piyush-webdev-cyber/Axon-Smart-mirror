@@ -2,6 +2,10 @@
 export const ROUTES = {
   home: "/",
   settings: "/settings",
+  camera: "/camera",
+  gallery: "/gallery",
+  gallerySession: "/gallery/session/:token",
+  link: "/link/:code",
   auth: "/auth",
   login: "/auth/login",
   callback: "/auth/callback",

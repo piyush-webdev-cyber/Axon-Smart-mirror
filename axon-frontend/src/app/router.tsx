@@ -8,6 +8,10 @@ import { BrandedLoader } from "@/components/common/BrandedLoader";
 // Route-based code splitting keeps the initial mirror bundle minimal on the Pi.
 const HomePage = lazy(() => import("@/pages/HomePage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
+const CameraPage = lazy(() => import("@/pages/CameraPage"));
+const GalleryPage = lazy(() => import("@/pages/GalleryPage"));
+const GallerySessionPage = lazy(() => import("@/pages/GallerySessionPage"));
+const LinkPage = lazy(() => import("@/pages/LinkPage"));
 const LoginPage = lazy(() => import("@/pages/auth/LoginPage"));
 const CallbackPage = lazy(() => import("@/pages/auth/CallbackPage"));
 
@@ -29,9 +33,30 @@ export const router = createBrowserRouter([
           </RequireAuth>,
         ),
       },
+      {
+        path: "camera",
+        element: lazyPage(
+          <RequireAuth>
+            <CameraPage />
+          </RequireAuth>,
+        ),
+      },
+      {
+        path: "gallery",
+        element: lazyPage(
+          <RequireAuth>
+            <GalleryPage />
+          </RequireAuth>,
+        ),
+      },
+      { path: "auth/login", element: lazyPage(<LoginPage />) },
     ],
   },
-  { path: ROUTES.login, element: lazyPage(<LoginPage />) },
+  { path: "/link/:code", element: lazyPage(<LinkPage />) },
+  {
+    path: ROUTES.gallerySession,
+    element: lazyPage(<GallerySessionPage />),
+  },
   { path: ROUTES.callback, element: lazyPage(<CallbackPage />) },
   { path: "*", element: <Navigate to={ROUTES.home} replace /> },
 ]);

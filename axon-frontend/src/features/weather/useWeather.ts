@@ -1,20 +1,8 @@
+import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/constants/queryKeys";
+import { fetchCurrentWeather } from "@/services/weatherApi";
 import type { WeatherSnapshot, WeatherStatus } from "./weather.types";
-
-/**
- * Static placeholder reading. This is the ONLY thing a future phase replaces:
- * swap the constant for a fetcher that returns the same `WeatherSnapshot`.
- */
-const PLACEHOLDER_SNAPSHOT: WeatherSnapshot = {
-  temperature: 32,
-  unit: "celsius",
-  condition: "sunny",
-  label: "Sunny",
-  location: "Set location",
-  feelsLike: 34,
-  humidity: 41,
-  high: 34,
-  low: 26,
-};
+import { useGeolocation } from "./useGeolocation";
 
 export interface UseWeatherResult {
   data: WeatherSnapshot | undefined;
@@ -23,22 +11,33 @@ export interface UseWeatherResult {
 }
 
 /**
- * Weather data access seam.
- *
- * Phase 2 returns a static snapshot so the widget is fully realised. To go
- * live later, this hook becomes a TanStack Query call:
- *
- *   const { data, status } = useQuery({
- *     queryKey: queryKeys.weather(location),
- *     queryFn: () => fetchWeather(location),
- *   });
- *
- * Callers never change because the return contract is identical.
+ * Live weather for the mirror — uses device geolocation + OpenWeather via backend.
  */
 export function useWeather(): UseWeatherResult {
-  return {
-    data: PLACEHOLDER_SNAPSHOT,
-    status: "ready",
-    isPlaceholder: true,
-  };
+  const { coords, error: geoError, loading: geoLoading } = useGeolocation();
+
+  const query = useQuery({
+    queryKey: queryKeys.weather(
+      coords ? `${coords.lat.toFixed(3)},${coords.lon.toFixed(3)}` : "unknown",
+    ),
+    queryFn: () => fetchCurrentWeather(coords!.lat, coords!.lon),
+    enabled: !!coords,
+    staleTime: 10 * 60_000,
+    refetchInterval: 15 * 60_000,
+    retry: 1,
+  });
+
+  if (geoLoading || (coords && query.isLoading)) {
+    return { data: undefined, status: "loading", isPlaceholder: false };
+  }
+
+  if (geoError || query.isError) {
+    return { data: undefined, status: "error", isPlaceholder: false };
+  }
+
+  if (query.data) {
+    return { data: query.data, status: "ready", isPlaceholder: false };
+  }
+
+  return { data: undefined, status: "idle", isPlaceholder: false };
 }

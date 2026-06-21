@@ -32,7 +32,7 @@ export function ClockWidget({
           </span>
         )}
       </div>
-      <span className="mt-0.5 text-subheading font-light text-content-muted">
+      <span className="mt-0.5 text-subheading font-light text-content-muted whitespace-nowrap">
         {date}
       </span>
     </div>

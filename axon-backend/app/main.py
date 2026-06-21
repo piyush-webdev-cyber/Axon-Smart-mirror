@@ -26,6 +26,9 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
+    from app.websockets.voice_handlers import register_voice_handlers
+
+    register_voice_handlers()
     logger.info(
         "Axon backend starting | env=%s | phase=%s | version=%s",
         settings.env,
@@ -48,9 +51,13 @@ def create_app() -> FastAPI:
     )
 
     # CORS configuration - must allow WebSocket upgrades
+    cors_origins = settings.get_cors_origins()
+    if settings.debug:
+        logger.info("CORS allowed origins: %s", cors_origins)
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

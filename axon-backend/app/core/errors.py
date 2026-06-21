@@ -20,10 +20,13 @@ class AxonError(Exception):
         message: str | None = None,
         *,
         details: Any | None = None,
+        status_code: int | None = None,
     ) -> None:
         super().__init__(message or self.code)
         self.message = message or self.code
         self.details = details
+        if status_code is not None:
+            self.status_code = status_code
 
 
 class NotFoundError(AxonError):

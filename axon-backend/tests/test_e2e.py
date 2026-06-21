@@ -76,16 +76,16 @@ def test_e2e_degraded_mode() -> None:
 
 
 def test_e2e_placeholder_endpoints() -> None:
-    """Verify placeholder endpoints return 501 as expected."""
-    response = client.post("/api/v1/voice")
+    """Verify remaining placeholder endpoints return 501 as expected."""
+    response = client.post("/api/v1/interviews")
     assert response.status_code == 501
     assert response.json()["error"]["code"] == "not_implemented"
 
     response = client.get("/api/v1/voice/status")
     assert response.status_code == 200
     body = response.json()
-    assert body["available"] is False
-    assert body["phase"] == 3
+    assert body["available"] is True
+    assert body["phase"] == 4
 
 
 def test_e2e_system_endpoints() -> None:
