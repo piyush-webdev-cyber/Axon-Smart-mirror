@@ -74,9 +74,24 @@ export async function fetchCurrentWeather(
   return normalizeSnapshot(data);
 }
 
+export async function fetchCurrentWeatherByCity(city: string): Promise<WeatherSnapshot> {
+  const params = new URLSearchParams({ city: city.trim() });
+  const response = await fetch(`${API_BASE}/weather/current?${params}`);
+
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => null);
+    throw new Error(parseApiError(body, "Failed to load weather"));
+  }
+
+  const data = (await response.json()) as Record<string, unknown>;
+  return normalizeSnapshot(data);
+}
+
 /** Weather for the caller's location — backend resolves lat/lon from public IP. */
 export async function fetchCurrentWeatherAuto(): Promise<WeatherSnapshot> {
-  const response = await fetch(`${API_BASE}/weather/current`);
+  const response = await fetch(`${API_BASE}/weather/current`, {
+    headers: { Accept: "application/json" },
+  });
 
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => null);

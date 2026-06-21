@@ -13,6 +13,7 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 OPENWEATHER_URL = "https://api.openweathermap.org/data/2.5/weather"
+IP_API_URL = "http://ip-api.com/json"
 IPWHO_URL = "https://ipwho.is"
 
 
@@ -55,26 +56,42 @@ async def fetch_current_weather(lat: float, lon: float) -> dict:
 async def fetch_coords_from_client_ip(client_ip: str | None) -> tuple[float, float]:
     """Resolve approximate lat/lon from the mirror's public IP (city-level)."""
     ip = (client_ip or "").strip()
-    if ip in {"", "127.0.0.1", "::1", "localhost"}:
-        url = f"{IPWHO_URL}/"
-    else:
-        url = f"{IPWHO_URL}/{ip}"
+    if not ip:
+        raise AxonError("Client IP is required for location lookup.", status_code=400)
+
+    errors: list[str] = []
 
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
-            response = await client.get(url)
+            response = await client.get(
+                f"{IP_API_URL}/{ip}",
+                params={"fields": "status,lat,lon,message"},
+            )
+        if response.status_code == 200:
+            payload = response.json()
+            if payload.get("status") == "success":
+                return float(payload["lat"]), float(payload["lon"])
+            errors.append(str(payload.get("message") or "ip-api failed"))
+        else:
+            errors.append(f"ip-api HTTP {response.status_code}")
     except httpx.HTTPError as exc:
-        logger.warning("IP geolocation request failed: %s", exc)
-        raise AxonError("Unable to detect location.", status_code=502) from exc
+        errors.append(f"ip-api: {exc}")
 
-    if response.status_code != 200:
-        raise AxonError("Unable to detect location.", status_code=502)
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(f"{IPWHO_URL}/{ip}")
+        if response.status_code == 200:
+            payload = response.json()
+            if payload.get("success"):
+                return float(payload["latitude"]), float(payload["longitude"])
+            errors.append("ipwho failed")
+        else:
+            errors.append(f"ipwho HTTP {response.status_code}")
+    except httpx.HTTPError as exc:
+        errors.append(f"ipwho: {exc}")
 
-    payload = response.json()
-    if not payload.get("success"):
-        raise AxonError("Unable to detect location.", status_code=502)
-
-    return float(payload["latitude"]), float(payload["longitude"])
+    logger.warning("IP geolocation failed for %s: %s", ip, "; ".join(errors))
+    raise AxonError("Unable to detect location from IP.", status_code=502)
 
 
 async def fetch_weather_for_client_ip(client_ip: str | None) -> dict:

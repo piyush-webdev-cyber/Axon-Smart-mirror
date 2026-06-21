@@ -85,6 +85,10 @@ app.whenReady().then(() => {
     callback(false);
   });
 
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
+    return permission === "geolocation" || permission === "media";
+  });
+
   applyAutoLaunch(Boolean(store.get("autoLaunch")));
 
   ipcMain.handle("axon-shell:is-electron", () => true);

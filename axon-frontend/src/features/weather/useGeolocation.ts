@@ -6,29 +6,47 @@ export interface GeoCoords {
   lon: number;
 }
 
-export type WeatherLocation =
-  | { mode: "coords"; coords: GeoCoords }
-  | { mode: "auto" };
-
 interface UseWeatherLocationResult {
-  location: WeatherLocation | null;
-  error: string | null;
+  coords: GeoCoords | null;
   loading: boolean;
 }
 
-function isElectronRuntime(): boolean {
-  return Boolean(typeof window !== "undefined" && window.axonShell?.isElectron);
-}
+const CACHE_KEY = "axon_weather_coords_v3";
+const CACHE_MAX_AGE_MS = 6 * 60 * 60_000;
 
 function readEnvOverride(): GeoCoords | null {
   if (env.weatherLat == null || env.weatherLon == null) return null;
   return { lat: env.weatherLat, lon: env.weatherLon };
 }
 
-function getBrowserPosition(): Promise<GeoCoords> {
+function readCachedCoords(): GeoCoords | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { lat: number; lon: number; at: number };
+    if (Date.now() - parsed.at > CACHE_MAX_AGE_MS) return null;
+    if (!Number.isFinite(parsed.lat) || !Number.isFinite(parsed.lon)) return null;
+    return { lat: parsed.lat, lon: parsed.lon };
+  } catch {
+    return null;
+  }
+}
+
+function cacheCoords(coords: GeoCoords): void {
+  try {
+    localStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify({ lat: coords.lat, lon: coords.lon, at: Date.now() }),
+    );
+  } catch {
+    /* noop */
+  }
+}
+
+function getDevicePosition(): Promise<GeoCoords> {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
-      reject(new Error("Geolocation unsupported"));
+      reject(new Error("unsupported"));
       return;
     }
 
@@ -39,25 +57,21 @@ function getBrowserPosition(): Promise<GeoCoords> {
           lon: position.coords.longitude,
         });
       },
-      (err) => reject(err),
+      () => reject(new Error("denied")),
       {
         enableHighAccuracy: false,
-        timeout: 10_000,
-        maximumAge: 5 * 60_000,
+        timeout: 8_000,
+        maximumAge: 10 * 60_000,
       },
     );
   });
 }
 
 /**
- * Mirror weather location:
- * 1. Optional env override (VITE_WEATHER_LAT/LON)
- * 2. Browser GPS (web only — skipped in Electron to avoid Google 403 noise)
- * 3. Backend IP geolocation via GET /weather/current (no query params)
+ * Optional device GPS coords. Weather still loads via backend IP/city if this fails.
  */
 export function useWeatherLocation(): UseWeatherLocationResult {
-  const [location, setLocation] = useState<WeatherLocation | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [coords, setCoords] = useState<GeoCoords | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -67,52 +81,40 @@ export function useWeatherLocation(): UseWeatherLocationResult {
       const override = readEnvOverride();
       if (override) {
         if (!cancelled) {
-          setLocation({ mode: "coords", coords: override });
+          setCoords(override);
           setLoading(false);
         }
         return;
       }
 
-      if (!isElectronRuntime()) {
-        try {
-          const coords = await getBrowserPosition();
-          if (!cancelled) {
-            setLocation({ mode: "coords", coords });
-            setLoading(false);
-            return;
-          }
-        } catch {
-          /* fall through to IP-based location */
-        }
+      const cached = readCachedCoords();
+      if (cached && !cancelled) {
+        setCoords(cached);
+        setLoading(false);
       }
 
-      if (!cancelled) {
-        setLocation({ mode: "auto" });
-        setLoading(false);
+      try {
+        const live = await getDevicePosition();
+        cacheCoords(live);
+        if (!cancelled) setCoords(live);
+      } catch {
+        if (!cancelled && !cached) setCoords(null);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
 
-    void resolve().catch(() => {
-      if (!cancelled) {
-        setError("Unable to detect location.");
-        setLoading(false);
-      }
-    });
-
+    void resolve();
     return () => {
       cancelled = true;
     };
   }, []);
 
-  return { location, error, loading };
+  return { coords, loading };
 }
 
 /** @deprecated use useWeatherLocation */
 export function useGeolocation() {
-  const { location, error, loading } = useWeatherLocation();
-  return {
-    coords: location?.mode === "coords" ? location.coords : null,
-    error,
-    loading,
-  };
+  const { coords, loading } = useWeatherLocation();
+  return { coords, error: null, loading };
 }
