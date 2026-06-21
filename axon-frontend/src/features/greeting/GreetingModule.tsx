@@ -20,7 +20,7 @@ export function GreetingModule() {
     : firstName(mirrorDisplayName ?? mirrorEmail?.split("@")[0] ?? undefined);
 
   return (
-    <div className="flex items-center justify-center text-center">
+    <div className="w-full text-center">
       <h1
         key={segment}
         className="text-heading font-light tracking-tight text-content gpu animate-fade-in-up"

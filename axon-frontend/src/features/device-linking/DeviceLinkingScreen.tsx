@@ -9,8 +9,8 @@ function useQrSize() {
 
   useEffect(() => {
     function updateSize() {
-      const maxByHeight = Math.floor(window.innerHeight * 0.28);
-      const maxByWidth = Math.floor(window.innerWidth * 0.28);
+      const maxByHeight = Math.floor(window.innerHeight * 0.32);
+      const maxByWidth = Math.floor((window.innerWidth - 176) * 0.36);
       const next = Math.min(240, maxByHeight, maxByWidth);
       setSize(Math.max(160, next));
     }
@@ -33,7 +33,7 @@ export function DeviceLinkingScreen() {
 
   if (booting) {
     return (
-      <div className="flex w-full items-center justify-center py-8">
+      <div className="flex w-full items-center justify-center">
         <p className="text-2xl text-glow">Generating device code...</p>
       </div>
     );
@@ -41,7 +41,7 @@ export function DeviceLinkingScreen() {
 
   if (error) {
     return (
-      <div className="flex w-full max-w-lg flex-col items-center justify-center px-4 py-8 text-center">
+      <div className="flex w-full max-w-lg flex-col items-center justify-center px-4 text-center">
         <p className="mb-4 text-2xl text-error">{error}</p>
         <button
           type="button"
@@ -59,7 +59,7 @@ export function DeviceLinkingScreen() {
   const linkUrl = buildDeviceLinkUrl(deviceCode.code);
 
   return (
-    <div className="flex w-full max-w-lg flex-col items-center justify-center px-4 pb-8 pt-2 text-center">
+    <div className="mx-auto flex w-full max-w-lg flex-col items-center justify-center px-4 text-center">
       {waiting && (
         <div className="mb-4 flex items-center justify-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-2 text-caption text-primary">
           <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary" />
@@ -67,12 +67,12 @@ export function DeviceLinkingScreen() {
         </div>
       )}
 
-      <h1 className="mb-3 text-subheading font-semibold text-glow sm:text-heading">
+      <h1 className="mb-4 text-subheading font-semibold text-glow sm:text-heading">
         Scan QR to Connect Axon
       </h1>
 
       <div
-        className="mb-3 shrink-0 overflow-visible rounded-2xl bg-white p-4 shadow-[0_0_40px_rgba(255,255,255,0.12)]"
+        className="mb-4 shrink-0 overflow-visible rounded-2xl bg-white p-4 shadow-[0_0_40px_rgba(255,255,255,0.12)]"
         style={{ width: qrSize + 32, height: qrSize + 32 }}
       >
         <QRCodeSVG
@@ -86,7 +86,7 @@ export function DeviceLinkingScreen() {
         />
       </div>
 
-      <div className="mb-1 text-display-lg font-bold tracking-wider text-primary text-glow-strong">
+      <div className="mb-2 text-display-lg font-bold tracking-wider text-primary text-glow-strong">
         {deviceCode.code}
       </div>
 
@@ -95,7 +95,7 @@ export function DeviceLinkingScreen() {
       </p>
 
       {isLocalhostOrigin() && !env.publicMirrorUrl && (
-        <p className="mt-2 max-w-xs text-caption text-warning">
+        <p className="mt-3 max-w-xs text-caption text-warning">
           Set VITE_PUBLIC_MIRROR_URL so the QR opens on your phone.
         </p>
       )}

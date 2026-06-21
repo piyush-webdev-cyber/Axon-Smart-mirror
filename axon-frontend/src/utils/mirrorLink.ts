@@ -6,6 +6,7 @@ import {
   storeLinkedDisplayName,
   storeLinkedEmail,
   storeMirrorAuth,
+  storeLinkedDeviceCode,
   getLinkedDisplayName,
   getLinkedEmail,
   getLinkedUserId,
@@ -19,11 +20,12 @@ export interface MirrorLinkPayload {
   mirrorToken: string;
   displayName?: string | null;
   email?: string | null;
+  linkedDeviceCode?: string | null;
 }
 
 /** Apply a successful device link immediately (sync — no event race). */
 export function applyMirrorLink(payload: MirrorLinkPayload): void {
-  const { userId, mirrorToken, displayName, email } = payload;
+  const { userId, mirrorToken, displayName, email, linkedDeviceCode } = payload;
 
   storeMirrorAuth(userId, mirrorToken);
 
@@ -32,6 +34,9 @@ export function applyMirrorLink(payload: MirrorLinkPayload): void {
   }
   if (email) {
     storeLinkedEmail(email);
+  }
+  if (linkedDeviceCode) {
+    storeLinkedDeviceCode(linkedDeviceCode);
   }
 
   sessionStorage.removeItem(ACTIVE_DEVICE_CODE_KEY);

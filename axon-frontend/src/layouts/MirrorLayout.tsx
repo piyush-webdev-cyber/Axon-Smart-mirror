@@ -42,8 +42,7 @@ export function MirrorLayout() {
         {/* Center: dynamic content area, weighted toward the assistant below */}
         <main
           className={cn(
-            "flex min-h-0 items-start justify-center overflow-visible pt-2",
-            deviceLinkUiActive && "max-h-[calc(100%-8rem)]",
+            "relative flex min-h-0 w-full flex-1 items-center justify-center overflow-visible",
           )}
         >
           <Outlet />

@@ -11,18 +11,22 @@ export default function HomePage() {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-full w-full items-center justify-center">
         <div className="text-2xl text-glow">Loading...</div>
       </div>
     );
   }
 
   if (!user && !linked) {
-    return <DeviceLinkingScreen />;
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <DeviceLinkingScreen />
+      </div>
+    );
   }
 
   return (
-    <section className="flex w-full flex-col items-center justify-center gap-[clamp(1rem,2.6vh,1.875rem)]">
+    <section className="flex h-full w-full flex-col items-center justify-center text-center">
       <GreetingModule />
       <div id="mirror-dynamic-region" aria-live="polite" className="contents" />
     </section>

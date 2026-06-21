@@ -6,6 +6,7 @@ export const MIRROR_TOKEN_KEY = "axon_mirror_token";
 export const LINKED_USER_KEY = "axon_linked_user_id";
 export const DISPLAY_NAME_KEY = "axon_display_name";
 export const EMAIL_KEY = "axon_linked_email";
+export const LINKED_DEVICE_CODE_KEY = "axon_linked_device_code";
 export const MIRROR_LINKED_EVENT = "axon:mirror-linked";
 
 export function getLinkedUserId(): string | null {
@@ -18,6 +19,14 @@ export function getLinkedDisplayName(): string | null {
 
 export function getLinkedEmail(): string | null {
   return localStorage.getItem(EMAIL_KEY);
+}
+
+export function getLinkedDeviceCode(): string | null {
+  return localStorage.getItem(LINKED_DEVICE_CODE_KEY);
+}
+
+export function storeLinkedDeviceCode(code: string): void {
+  localStorage.setItem(LINKED_DEVICE_CODE_KEY, code.trim().toUpperCase());
 }
 
 export function getMirrorToken(): string | null {
@@ -63,5 +72,6 @@ export function clearMirrorAuth(): void {
   localStorage.removeItem(MIRROR_TOKEN_KEY);
   localStorage.removeItem(DISPLAY_NAME_KEY);
   localStorage.removeItem(EMAIL_KEY);
+  localStorage.removeItem(LINKED_DEVICE_CODE_KEY);
   window.dispatchEvent(new Event(MIRROR_LINKED_EVENT));
 }

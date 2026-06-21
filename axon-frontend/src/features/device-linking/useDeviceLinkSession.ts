@@ -30,6 +30,11 @@ export function useDeviceLinkSession() {
   const [error, setError] = useState<string | null>(null);
   const [booting, setBooting] = useState(true);
   const linkedRef = useRef(false);
+  const deviceCodeRef = useRef<DeviceCode | null>(null);
+
+  useEffect(() => {
+    deviceCodeRef.current = deviceCode;
+  }, [deviceCode]);
 
   useEffect(() => {
     setDeviceLinkUiActive(true);
@@ -40,8 +45,9 @@ export function useDeviceLinkSession() {
     (payload: Parameters<typeof applyMirrorLink>[0]) => {
       if (linkedRef.current || isMirrorLinked()) return;
       linkedRef.current = true;
+      const linkedDeviceCode = deviceCodeRef.current?.code ?? null;
       clearActiveDeviceCode();
-      applyMirrorLink(payload);
+      applyMirrorLink({ ...payload, linkedDeviceCode });
       setDeviceLinkUiActive(false);
       navigate(ROUTES.home, { replace: true });
     },

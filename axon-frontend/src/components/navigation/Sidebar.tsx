@@ -1,4 +1,3 @@
-import { Link } from "react-router-dom";
 import {
   Briefcase,
   Camera,
@@ -6,11 +5,9 @@ import {
   Image,
   Music,
   Settings,
-  UserRound,
 } from "lucide-react";
 import { ROUTES } from "@/constants/routes";
-import { useAuth } from "@/context/AuthProvider";
-import { useMirrorAuth } from "@/hooks/useMirrorAuth";
+import { AccountMenu } from "./AccountMenu";
 import { NavItem } from "./NavItem";
 import { ClockWidget } from "@/features/clock/ClockWidget";
 
@@ -30,24 +27,6 @@ const NAV_ITEMS: SidebarNavItem[] = [
 ];
 
 export function Sidebar() {
-  const { user, loading } = useAuth();
-  const { linked: mirrorLinked, userId: mirrorUserId, email: mirrorEmail, displayName } =
-    useMirrorAuth();
-
-  const isAuthenticated = Boolean(user) || mirrorLinked;
-
-  const accountLabel = loading
-    ? "Account"
-    : user
-      ? user.email?.split("@")[0] ?? user.id.slice(0, 8)
-      : mirrorLinked
-        ? displayName ?? mirrorEmail?.split("@")[0] ?? mirrorUserId?.slice(0, 8) ?? "Linked"
-        : "Connect";
-
-  const accountSubLabel = mirrorLinked
-    ? mirrorEmail ?? mirrorUserId
-    : user?.email ?? null;
-
   return (
     <aside className="pointer-events-none fixed inset-y-0 left-0 z-30 w-[11rem] p-3">
       <div className="pointer-events-auto relative flex h-full w-full flex-col rounded-[2rem] bg-surface/30 px-4 py-6 backdrop-blur-xl">
@@ -69,22 +48,7 @@ export function Sidebar() {
           </ul>
         </nav>
 
-        <Link
-          to={isAuthenticated ? ROUTES.home : ROUTES.login}
-          className="group relative mt-auto flex flex-col gap-0.5 rounded-full border border-white/15 bg-white/5 px-4 py-2.5 text-white transition-all duration-300 hover:border-primary/35 hover:bg-primary/10 hover:ring-glow"
-        >
-          <span className="flex items-center gap-2.5">
-            <UserRound className="size-4 shrink-0 text-white" strokeWidth={1.7} />
-            <span className="truncate text-sm font-light tracking-wide text-white">
-              {accountLabel}
-            </span>
-          </span>
-          {isAuthenticated && accountSubLabel && (
-            <span className="truncate pl-6 text-[10px] text-text-secondary">
-              {accountSubLabel}
-            </span>
-          )}
-        </Link>
+        <AccountMenu />
       </div>
     </aside>
   );
