@@ -48,6 +48,22 @@ export default function LinkPage() {
       }
 
       await deviceApi.linkDevice(code, freshSession.access_token);
+
+      // Fetch full link payload (mirror_token) for cross-replica sync fallback
+      const status = await deviceApi.checkDeviceStatus(code);
+      if (status.mirror_token && status.user_id) {
+        sessionStorage.setItem(
+          "axon_last_link_payload",
+          JSON.stringify({
+            code,
+            userId: status.user_id,
+            mirrorToken: status.mirror_token,
+            email: status.email,
+            displayName: status.display_name,
+          }),
+        );
+      }
+
       localStorage.removeItem("axon_pending_link_code");
       setPhase("success");
     } catch (err) {
@@ -59,6 +75,11 @@ export default function LinkPage() {
 
   useEffect(() => {
     if (authLoading || !code) return;
+
+    // Parse OAuth tokens from hash when Supabase redirects back to /link/:code
+    if (window.location.hash.includes("access_token")) {
+      void supabase.auth.getSession();
+    }
 
     if (session) {
       if (!linkStarted.current) {

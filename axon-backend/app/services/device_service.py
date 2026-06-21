@@ -28,6 +28,8 @@ class DeviceService:
     # In-memory fallback for local dev when Supabase schema is not migrated yet.
     _dev_codes: dict[str, dict] = {}
     _dev_mode: bool = False
+    # Process-local mirror tokens when DB row lacks mirror_token column
+    _linked_meta: dict[str, dict] = {}
 
     def __init__(self, supabase_admin: Client):
         """Initialize with admin client (bypasses RLS)."""
@@ -35,6 +37,12 @@ class DeviceService:
 
     @classmethod
     def _activate_dev_mode(cls, reason: str) -> bool:
+        if settings.is_production:
+            logger.error(
+                "%s Device linking requires Supabase (device_codes table) in production.",
+                reason,
+            )
+            return False
         if not settings.debug:
             return False
         if not cls._dev_mode:
@@ -122,6 +130,17 @@ class DeviceService:
 
         return None, None
 
+    def _fetch_user_email(self, user_id: str) -> str | None:
+        try:
+            auth_user = self.db.auth.admin.get_user_by_id(user_id)
+            user = getattr(auth_user, "user", None) or auth_user
+            email = getattr(user, "email", None)
+            if isinstance(email, str) and email.strip():
+                return email
+        except Exception as exc:
+            logger.warning("Email lookup failed for %s: %s", user_id, exc)
+        return None
+
     async def create_device_code(self) -> dict:
         """Create a new device code for linking."""
         code = self._generate_code()
@@ -163,6 +182,7 @@ class DeviceService:
 
     async def get_device_code(self, code: str) -> dict | None:
         """Fetch device code by code string."""
+        code = code.strip().upper()
         if self._dev_mode:
             return self._get_dev_record(code)
 
@@ -187,6 +207,7 @@ class DeviceService:
 
     async def link_device(self, code: str, user_id: str) -> dict:
         """Link a device code to a user account."""
+        code = code.strip().upper()
         device_code = await self.get_device_code(code)
 
         if not device_code:
@@ -204,6 +225,7 @@ class DeviceService:
             raise AxonError("Device code already linked", status_code=400)
 
         display_name, avatar_url = self._fetch_user_display(user_id)
+        email = self._fetch_user_email(user_id)
 
         if self._dev_mode:
             record = self._dev_codes[code]
@@ -214,6 +236,7 @@ class DeviceService:
                     "status": "linked",
                     "display_name": display_name,
                     "avatar_url": avatar_url,
+                    "email": email,
                     "mirror_token": mirror_token,
                     "updated_at": self._now_iso(),
                 }
@@ -223,15 +246,14 @@ class DeviceService:
 
         mirror_token = secrets.token_urlsafe(32)
         try:
+            update_payload: dict = {
+                "user_id": user_id,
+                "status": "linked",
+                "mirror_token": mirror_token,
+            }
             result = (
                 self.db.table("device_codes")
-                .update(
-                    {
-                        "user_id": user_id,
-                        "status": "linked",
-                        "mirror_token": mirror_token,
-                    }
-                )
+                .update(update_payload)
                 .eq("code", code)
                 .execute()
             )
@@ -240,14 +262,50 @@ class DeviceService:
                 raise AxonError("Failed to link device", status_code=500)
 
             logger.info("Linked device %s to user %s", code, user_id)
-            return result.data[0]
+            linked = result.data[0]
+            linked["mirror_token"] = mirror_token
+            self._linked_meta[code] = {
+                "mirror_token": mirror_token,
+                "display_name": display_name,
+                "avatar_url": avatar_url,
+                "email": email,
+            }
+            return linked
 
+        except APIError as exc:
+            if self._is_missing_table(exc) and self._activate_dev_mode(
+                "device_codes table missing."
+            ):
+                return await self.link_device(code, user_id)
+            # mirror_token column may be missing before migration 0005
+            if "mirror_token" in str(exc).lower() or getattr(exc, "code", None) == "PGRST204":
+                logger.warning("mirror_token column missing; linking without token column")
+                result = (
+                    self.db.table("device_codes")
+                    .update({"user_id": user_id, "status": "linked"})
+                    .eq("code", code)
+                    .execute()
+                )
+                if not result.data:
+                    raise AxonError("Failed to link device", status_code=500) from exc
+                record = result.data[0]
+                record["mirror_token"] = mirror_token
+                self._linked_meta[code] = {
+                    "mirror_token": mirror_token,
+                    "display_name": display_name,
+                    "avatar_url": avatar_url,
+                    "email": email,
+                }
+                return record
+            logger.error("Failed to link device %s: %s", code, exc)
+            raise AxonError("Failed to link device", status_code=500) from exc
         except Exception as exc:
             logger.error("Failed to link device %s: %s", code, exc)
             raise AxonError("Failed to link device", status_code=500) from exc
 
     async def check_device_status(self, code: str) -> dict:
         """Check the status of a device code."""
+        code = code.strip().upper()
         device_code = await self.get_device_code(code)
 
         if not device_code:
@@ -271,16 +329,28 @@ class DeviceService:
             "user_id": device_code.get("user_id"),
             "display_name": device_code.get("display_name"),
             "avatar_url": device_code.get("avatar_url"),
+            "email": device_code.get("email"),
             "mirror_token": device_code.get("mirror_token"),
         }
 
+        meta = self._linked_meta.get(code)
+        if meta:
+            for key in ("mirror_token", "display_name", "avatar_url", "email"):
+                if not response.get(key) and meta.get(key):
+                    response[key] = meta[key]
+
         if device_code["status"] == "linked" and device_code.get("user_id"):
-            if not response["display_name"]:
+            if not response["display_name"] or not response["email"]:
                 display_name, avatar_url = self._fetch_user_display(device_code["user_id"])
-                response["display_name"] = display_name
-                response["avatar_url"] = avatar_url
+                email = self._fetch_user_email(device_code["user_id"])
+                if not response["display_name"]:
+                    response["display_name"] = display_name
+                response["avatar_url"] = response["avatar_url"] or avatar_url
+                if not response["email"]:
+                    response["email"] = email
                 if self._dev_mode and code in self._dev_codes:
-                    self._dev_codes[code]["display_name"] = display_name
-                    self._dev_codes[code]["avatar_url"] = avatar_url
+                    self._dev_codes[code]["display_name"] = response["display_name"]
+                    self._dev_codes[code]["avatar_url"] = response["avatar_url"]
+                    self._dev_codes[code]["email"] = response["email"]
 
         return response

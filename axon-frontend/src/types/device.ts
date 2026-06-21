@@ -13,6 +13,7 @@ export interface DeviceStatus {
   user_id: string | null;
   display_name: string | null;
   avatar_url: string | null;
+  email?: string | null;
   mirror_token?: string | null;
 }
 
@@ -21,4 +22,6 @@ export interface DeviceLinkResponse {
   message: string;
   user_id: string | null;
   display_name: string | null;
+  email?: string | null;
+  mirror_token?: string | null;
 }

@@ -1,18 +1,14 @@
 import { useAuth } from "@/context/AuthProvider";
+import { useAppStore } from "@/store";
 import { GreetingModule } from "@/features/greeting/GreetingModule";
 import { DeviceLinkingScreen } from "@/features/device-linking/DeviceLinkingScreen";
+import { isMirrorLinked } from "@/utils/authToken";
 
-/**
- * Center stage of the mirror. Renders the personalized greeting and leaves a
- * calm dynamic region for future intelligence (coach, briefings, photos) to
- * render into without disturbing the hero layout.
- * 
- * If user is not authenticated, shows device linking screen with QR code.
- */
 export default function HomePage() {
   const { user, loading } = useAuth();
+  const mirrorLinked = useAppStore((s) => s.mirrorLinked);
+  const linked = mirrorLinked || isMirrorLinked();
 
-  // Show loading state
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -21,22 +17,14 @@ export default function HomePage() {
     );
   }
 
-  // If no user, show device linking screen
-  if (!user) {
+  if (!user && !linked) {
     return <DeviceLinkingScreen />;
   }
 
-  // If authenticated, show normal home page
   return (
     <section className="flex w-full flex-col items-center justify-center gap-[clamp(1rem,2.6vh,1.875rem)]">
       <GreetingModule />
-
-      {/* Future dynamic content region - intentionally empty until populated. */}
-      <div
-        id="mirror-dynamic-region"
-        aria-live="polite"
-        className="contents"
-      />
+      <div id="mirror-dynamic-region" aria-live="polite" className="contents" />
     </section>
   );
 }

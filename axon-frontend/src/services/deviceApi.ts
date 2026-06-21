@@ -33,6 +33,28 @@ function parseApiError(body: unknown, fallback: string): string {
   return fallback;
 }
 
+function normalizeDeviceStatus(raw: Record<string, unknown>): DeviceStatus {
+  return {
+    status: raw.status as DeviceStatus["status"],
+    user_id: (raw.user_id ?? raw.userId ?? null) as string | null,
+    display_name: (raw.display_name ?? raw.displayName ?? null) as string | null,
+    avatar_url: (raw.avatar_url ?? raw.avatarUrl ?? null) as string | null,
+    email: (raw.email ?? null) as string | null,
+    mirror_token: (raw.mirror_token ?? raw.mirrorToken ?? null) as string | null,
+  };
+}
+
+function normalizeDeviceLinkResponse(raw: Record<string, unknown>): DeviceLinkResponse {
+  return {
+    success: Boolean(raw.success),
+    message: String(raw.message ?? ""),
+    user_id: (raw.user_id ?? raw.userId ?? null) as string | null,
+    display_name: (raw.display_name ?? raw.displayName ?? null) as string | null,
+    email: (raw.email ?? null) as string | null,
+    mirror_token: (raw.mirror_token ?? raw.mirrorToken ?? null) as string | null,
+  };
+}
+
 export const deviceApi = {
   /**
    * Create a new device code (mirror calls this on startup).
@@ -62,7 +84,8 @@ export const deviceApi = {
       throw new Error("Failed to check device status");
     }
 
-    return response.json();
+    const data = (await response.json()) as Record<string, unknown>;
+    return normalizeDeviceStatus(data);
   },
 
   /**
@@ -84,6 +107,7 @@ export const deviceApi = {
       throw new Error(parseApiError(body, "Failed to link device"));
     }
 
-    return response.json();
+    const data = (await response.json()) as Record<string, unknown>;
+    return normalizeDeviceLinkResponse(data);
   },
 };

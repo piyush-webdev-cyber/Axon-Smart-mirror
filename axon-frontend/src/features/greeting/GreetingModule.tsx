@@ -1,8 +1,8 @@
 import { useAuth } from "@/context/AuthProvider";
+import { useMirrorAuth } from "@/hooks/useMirrorAuth";
 import { useGreeting } from "./useGreeting";
 
-/** Shown when no authenticated profile name is available. Configurable. */
-const DEFAULT_NAME = "Piyush";
+const DEFAULT_NAME = "Guest";
 
 function firstName(full: string | undefined): string {
   const trimmed = full?.trim();
@@ -10,14 +10,14 @@ function firstName(full: string | undefined): string {
   return trimmed.split(/\s+/)[0] ?? DEFAULT_NAME;
 }
 
-/**
- * Center hero. A calm, time-aware greeting that reads instantly from across the
- * room. The name is the emphasis; the salutation is the quiet lead-in.
- */
 export function GreetingModule() {
   const { greeting, segment } = useGreeting();
   const { user } = useAuth();
-  const name = firstName(user?.user_metadata?.["full_name"] as string | undefined);
+  const { displayName: mirrorDisplayName, email: mirrorEmail } = useMirrorAuth();
+
+  const name = user
+    ? firstName(user.user_metadata?.["full_name"] as string | undefined)
+    : firstName(mirrorDisplayName ?? mirrorEmail?.split("@")[0] ?? undefined);
 
   return (
     <div className="flex items-center justify-center text-center">

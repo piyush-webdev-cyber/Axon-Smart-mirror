@@ -4,6 +4,8 @@ import { MicButton } from "@/features/voice/MicButton";
 import { SystemStatusBar } from "@/features/system-status/SystemStatusBar";
 import { Sidebar } from "@/components/navigation/Sidebar";
 import { VoiceEffects } from "@/features/voice/VoiceEffects";
+import { useAppStore } from "@/store";
+import { cn } from "@/utils/cn";
 
 /**
  * The canonical Axon mirror frame. A fluid CSS grid that adapts to any
@@ -17,6 +19,8 @@ import { VoiceEffects } from "@/features/voice/VoiceEffects";
  *   bottom        -> System status
  */
 export function MirrorLayout() {
+  const deviceLinkUiActive = useAppStore((s) => s.deviceLinkUiActive);
+
   return (
     <div className="relative h-full w-full">
       <VoiceEffects />
@@ -36,12 +40,22 @@ export function MirrorLayout() {
         </header>
 
         {/* Center: dynamic content area, weighted toward the assistant below */}
-        <main className="flex min-h-0 items-center justify-center overflow-visible">
+        <main
+          className={cn(
+            "flex min-h-0 items-start justify-center overflow-visible pt-2",
+            deviceLinkUiActive && "max-h-[calc(100%-8rem)]",
+          )}
+        >
           <Outlet />
         </main>
 
         {/* Bottom: living assistant core (focal point) above system status */}
-        <footer className="flex flex-col items-center gap-1.5">
+        <footer
+          className={cn(
+            "flex flex-col items-center gap-1.5 transition-opacity",
+            deviceLinkUiActive && "pointer-events-none opacity-30",
+          )}
+        >
           <MicButton />
           <SystemStatusBar />
         </footer>

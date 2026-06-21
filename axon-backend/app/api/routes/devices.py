@@ -6,13 +6,14 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import CurrentUser, get_device_service
 from app.schemas.device import (
-    DeviceCodeCreate,
     DeviceCodeResponse,
     DeviceLinkRequest,
     DeviceLinkResponse,
     DeviceStatusResponse,
 )
 from app.services.device_service import DeviceService
+from app.websockets.events import WsEvent
+from app.websockets.manager import connection_manager
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 
@@ -59,16 +60,29 @@ async def link_device(
     Requires authentication - user must be logged in.
     """
     try:
-        device_code = await device_service.link_device(request.code, user.id)
+        normalized_code = request.code.strip().upper()
+        await device_service.link_device(normalized_code, user.id)
 
-        # Fetch user profile for response
-        status = await device_service.check_device_status(request.code)
+        status = await device_service.check_device_status(normalized_code)
+
+        await connection_manager.broadcast(
+            WsEvent.DEVICE_LINKED,
+            {
+                "code": normalized_code,
+                "userId": user.id,
+                "displayName": status.get("display_name"),
+                "email": status.get("email") or user.email,
+                "mirrorToken": status.get("mirror_token"),
+            },
+        )
 
         return DeviceLinkResponse(
             success=True,
             message="Device linked successfully",
             user_id=user.id,
             display_name=status.get("display_name"),
+            email=status.get("email") or user.email,
+            mirror_token=status.get("mirror_token"),
         )
 
     except Exception as e:
