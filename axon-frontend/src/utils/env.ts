@@ -38,6 +38,15 @@ function toWebSocketUrl(raw: string): string {
     return `ws://127.0.0.1:8010${path}`;
   }
 
+  // Production: prefer explicit wss:// from VITE_WS_URL (Railway backend).
+  // Relative paths would incorrectly target the Vercel host.
+  if (import.meta.env.PROD && raw.trim()) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[axon] VITE_WS_URL should be a full wss:// URL in production (Railway backend).",
+    );
+  }
+
   if (typeof window === "undefined") {
     return path;
   }
