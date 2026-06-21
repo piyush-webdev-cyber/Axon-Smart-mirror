@@ -18,6 +18,12 @@ export const SAY_WAKE_WORD_LABEL = `Say ${WAKE_WORD}`;
 /** Shown when the always-on listener is armed. */
 export const LISTENING_FOR_WAKE_LABEL = `Listening for ${WAKE_WORD}`;
 
+/** Brief label after wake word fires. */
+export const WAKE_DETECTED_LABEL = "Wake word detected";
+
+/** Active command capture. */
+export const LISTENING_COMMAND_LABEL = "Listening";
+
 /** Case-insensitive whole-word match for wake detection in STT transcripts. */
 export function buildWakeWordPattern(): RegExp {
   return new RegExp(`\\b${escapeRegExp(WAKE_WORD)}\\b`, "i");

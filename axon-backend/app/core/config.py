@@ -54,6 +54,13 @@ class Settings(BaseSettings):
     # --- Weather -----------------------------------------------------------
     openweather_api_key: str = Field(default="", alias="OPENWEATHER_API_KEY")
 
+    # --- Native voice (Electron / Raspberry Pi) ----------------------------
+    voice_wakeword_model_path: str = Field(default="", alias="AXON_WAKEWORD_MODEL_PATH")
+    voice_whisper_model: str = Field(default="base.en", alias="AXON_WHISPER_MODEL")
+    voice_whisper_device: str = Field(default="cpu", alias="AXON_WHISPER_DEVICE")
+    voice_piper_bin: str = Field(default="", alias="AXON_PIPER_BIN")
+    voice_piper_model: str = Field(default="", alias="AXON_PIPER_MODEL")
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> list[str]:

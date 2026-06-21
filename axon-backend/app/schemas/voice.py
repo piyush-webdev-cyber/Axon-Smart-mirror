@@ -41,3 +41,10 @@ class VoiceStatusResponse(CamelModel):
     wake_word: str = WAKE_WORD
     stt: str = "browser"
     tts: str = "browser"
+    native_wakeword: bool = False
+    native_stt: bool = False
+    native_tts: bool = False
+
+
+class VoiceTtsRequest(CamelModel):
+    text: str = Field(..., min_length=1, max_length=4000)

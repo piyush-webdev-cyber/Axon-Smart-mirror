@@ -11,7 +11,7 @@ import { useAuth } from "@/context/AuthProvider";
 import { executeVoiceAction } from "@/features/voice/commandActions";
 import {
   isMicGranted,
-  isSpeechRecognitionAvailable,
+  isVoiceEngineAvailable,
   primeAudioContext,
   requestMicAccess,
 } from "@/features/voice/micPermission";
@@ -68,6 +68,7 @@ export function useVoicePipeline(): void {
   const setReply = useAppStore((s) => s.setVoiceReply);
   const setMicReady = useAppStore((s) => s.setVoiceMicReady);
   const setWakeActive = useAppStore((s) => s.setVoiceWakeActive);
+  const setWakePulse = useAppStore((s) => s.setVoiceWakeDetectedPulse);
 
   const voiceStateRef = useRef<VoiceState>("idle");
   const coordsRef = useRef<{ lat: number; lon: number } | null>(null);
@@ -104,13 +105,15 @@ export function useVoicePipeline(): void {
   }, []);
 
   const armWakeWord = useCallback(() => {
-    if (!isSpeechRecognitionAvailable() || !micReadyRef.current) return;
+    if (!isVoiceEngineAvailable() || !micReadyRef.current) return;
     if (wakeWordService.isArmed()) return;
 
     wakeWordService.start({
       onWakeDetected: () => {
         void primeAudioContext();
         playWakeActivationSound();
+        setWakePulse(true);
+        window.setTimeout(() => setWakePulse(false), 900);
         emit(WS_EVENTS.voiceWakeDetected, { wakeWord: WAKE_WORD });
         skipListeningSoundRef.current = true;
         void beginListeningRef.current(true);
@@ -126,7 +129,7 @@ export function useVoicePipeline(): void {
         }
       },
     });
-  }, [emit, setMicReady, setTranscript, setWakeActive]);
+  }, [emit, setMicReady, setTranscript, setWakeActive, setWakePulse]);
 
   const ensureMic = useCallback(async (): Promise<boolean> => {
     if (micReadyRef.current || isMicGranted()) {
@@ -245,29 +248,32 @@ export function useVoicePipeline(): void {
       dispatch("startListening");
       emit(WS_EVENTS.voiceListening, { fromWakeWord });
 
-      sttSession.start({
-        onInterim: (text) => setTranscript(cleanTranscript(text) || text),
-        onFinal: (text) => {
-          const cleaned = cleanTranscript(text);
-          if (cleaned) setTranscript(cleaned);
+      sttSession.start(
+        {
+          onInterim: (text) => setTranscript(cleanTranscript(text) || text),
+          onFinal: (text) => {
+            const cleaned = cleanTranscript(text);
+            if (cleaned) setTranscript(cleaned);
+          },
+          onError: (message) => {
+            playErrorSound();
+            if (message.includes("denied")) {
+              micReadyRef.current = false;
+              setMicReady(false);
+            }
+            dispatch("error");
+            processingRef.current = false;
+            armWakeWord();
+          },
+          onEnd: () => {
+            const current = useAppStore.getState().voiceTranscript;
+            if (voiceStateRef.current === "listening") {
+              void processTranscript(current);
+            }
+          },
         },
-        onError: (message) => {
-          playErrorSound();
-          if (message.includes("denied")) {
-            micReadyRef.current = false;
-            setMicReady(false);
-          }
-          dispatch("error");
-          processingRef.current = false;
-          armWakeWord();
-        },
-        onEnd: () => {
-          const current = useAppStore.getState().voiceTranscript;
-          if (voiceStateRef.current === "listening") {
-            void processTranscript(current);
-          }
-        },
-      });
+        { fromWakeWord },
+      );
     },
     [
       armWakeWord,
@@ -311,8 +317,8 @@ export function useVoicePipeline(): void {
 
   /** Boot always-on wake word on mirror load — no button press. */
   useEffect(() => {
-    if (!isSpeechRecognitionAvailable()) {
-      setTranscript("Voice requires Chrome or Edge.");
+    if (!isVoiceEngineAvailable()) {
+      setTranscript("Voice requires Chrome, Edge, or the Axon desktop app.");
       return;
     }
 

@@ -141,6 +141,35 @@ class DeviceService:
             logger.warning("Email lookup failed for %s: %s", user_id, exc)
         return None
 
+    async def _ensure_mirror_token(self, code: str) -> str:
+        """Return a stable mirror token for linked devices (multi-instance safe when DB has column)."""
+        meta = self._linked_meta.get(code) or {}
+        existing = meta.get("mirror_token")
+        if isinstance(existing, str) and existing:
+            return existing
+
+        device_code = await self.get_device_code(code)
+        if device_code and device_code.get("mirror_token"):
+            token = str(device_code["mirror_token"])
+            self._linked_meta[code] = {**meta, "mirror_token": token}
+            return token
+
+        token = secrets.token_urlsafe(32)
+        self._linked_meta[code] = {**meta, "mirror_token": token}
+
+        if self._dev_mode and code in self._dev_codes:
+            self._dev_codes[code]["mirror_token"] = token
+            return token
+
+        try:
+            self.db.table("device_codes").update({"mirror_token": token}).eq("code", code).execute()
+        except APIError as exc:
+            logger.warning("Could not persist mirror_token for %s: %s", code, exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("mirror_token persist failed for %s: %s", code, exc)
+
+        return token
+
     async def create_device_code(self) -> dict:
         """Create a new device code for linking."""
         code = self._generate_code()
@@ -340,6 +369,9 @@ class DeviceService:
                     response[key] = meta[key]
 
         if device_code["status"] == "linked" and device_code.get("user_id"):
+            if not response.get("mirror_token"):
+                response["mirror_token"] = await self._ensure_mirror_token(code)
+
             if not response["display_name"] or not response["email"]:
                 display_name, avatar_url = self._fetch_user_display(device_code["user_id"])
                 email = self._fetch_user_email(device_code["user_id"])

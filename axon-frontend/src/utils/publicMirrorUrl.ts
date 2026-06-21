@@ -16,6 +16,11 @@ export function getPublicMirrorOrigin(): string {
   const configured = env.publicMirrorUrl?.replace(/\/$/, "");
   if (configured) return configured;
 
+  // Electron kiosk should never embed 127.0.0.1 in QR codes.
+  if (typeof window !== "undefined" && window.axonShell?.isElectron) {
+    return "https://axon-smart-mirror.vercel.app";
+  }
+
   if (typeof window !== "undefined" && !isLocalhostOrigin()) {
     return window.location.origin;
   }

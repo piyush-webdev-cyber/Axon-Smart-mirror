@@ -8,7 +8,7 @@ import { websocketClient } from "@/services/websocketClient";
 import { useAppStore } from "@/store";
 import type { DeviceCode } from "@/types/device";
 import { acquireDeviceCode, clearActiveDeviceCode } from "@/features/device-linking/deviceCodeSession";
-import { isMirrorLinked } from "@/utils/authToken";
+import { isMirrorLinked, MIRROR_LINKED_EVENT } from "@/utils/authToken";
 import {
   applyMirrorLink,
   deviceStatusToLinkPayload,
@@ -56,6 +56,9 @@ export function useDeviceLinkSession() {
 
   const tryCompleteFromStatus = useCallback(
     (status: Awaited<ReturnType<typeof deviceApi.checkDeviceStatus>>) => {
+      if (status.status === "linked" && status.user_id && !status.mirror_token) {
+        console.warn("[axon] Device linked but mirror_token missing — will retry on next poll");
+      }
       const payload = deviceStatusToLinkPayload(status);
       if (payload) finishLink(payload);
     },
@@ -99,6 +102,19 @@ export function useDeviceLinkSession() {
     };
   }, [mirrorLinked, tryCompleteFromStatus, setDeviceLinkUiActive]);
 
+  /** Sync UI when link completes via storage (poll / WS / Realtime). */
+  useEffect(() => {
+    const onLinked = () => {
+      if (!isMirrorLinked() || linkedRef.current) return;
+      linkedRef.current = true;
+      setDeviceLinkUiActive(false);
+      navigate(ROUTES.home, { replace: true });
+    };
+
+    window.addEventListener(MIRROR_LINKED_EVENT, onLinked);
+    return () => window.removeEventListener(MIRROR_LINKED_EVENT, onLinked);
+  }, [navigate, setDeviceLinkUiActive]);
+
   useEffect(() => {
     if (!deviceCode || mirrorLinked || linkedRef.current) return;
 
@@ -122,7 +138,16 @@ export function useDeviceLinkSession() {
 
     void poll();
     intervalId = setInterval(poll, POLL_MS);
-    return () => clearInterval(intervalId);
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void poll();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [deviceCode, mirrorLinked, tryCompleteFromStatus]);
 
   useEffect(() => {

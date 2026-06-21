@@ -1,0 +1,11 @@
+# Optional native voice stack for Electron / Raspberry Pi deployments.
+# Install alongside base requirements:
+#   pip install -r requirements.txt -r requirements-voice.txt
+
+numpy>=1.26.0
+openwakeword>=0.6.0
+onnxruntime>=1.17.0
+faster-whisper>=1.0.0
+
+# Piper TTS is invoked as an external binary (see AXON_PIPER_BIN).
+# Download from: https://github.com/rhasspy/piper/releases

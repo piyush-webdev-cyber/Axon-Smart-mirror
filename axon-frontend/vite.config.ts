@@ -5,7 +5,10 @@ import path from "node:path";
 // Vite config tuned for low-memory Raspberry Pi kiosk targets:
 // - manual vendor chunking keeps the initial mirror shell small
 // - route/feature code splitting is handled via React.lazy in the app
-export default defineConfig({
+const isElectronBuild = process.env.ELECTRON === "1";
+
+export default defineConfig(({ mode }) => ({
+  base: isElectronBuild || mode === "electron" ? "./" : "/",
   plugins: [react()],
   resolve: {
     alias: {
@@ -57,4 +60,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

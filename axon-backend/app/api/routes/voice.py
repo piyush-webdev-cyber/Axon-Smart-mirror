@@ -9,7 +9,11 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.security import decode_supabase_jwt
 from app.schemas.voice import VoiceProcessRequest, VoiceProcessResponse, VoiceStatusResponse
+from app.core.config import settings
+from app.services.stt_service import get_stt_service
+from app.services.tts_service import get_tts_service
 from app.services.voice_service import process_voice_command
+from app.services.wakeword_service import get_wakeword_service
 
 router = APIRouter(prefix="/voice", tags=["voice"])
 
@@ -30,7 +34,19 @@ def _optional_user_id(
 @router.get("/status", response_model=VoiceStatusResponse)
 async def voice_status() -> VoiceStatusResponse:
     """Voice assistant availability."""
-    return VoiceStatusResponse()
+    wake = get_wakeword_service(settings.voice_wakeword_model_path or None)
+    stt = get_stt_service(settings.voice_whisper_model, settings.voice_whisper_device)
+    tts = get_tts_service(settings.voice_piper_bin or None, settings.voice_piper_model or None)
+
+    native_any = wake.available or stt.available or tts.available
+    return VoiceStatusResponse(
+        stt="faster-whisper" if stt.available else "browser",
+        tts="piper" if tts.available else "browser",
+        native_wakeword=wake.available,
+        native_stt=stt.available,
+        native_tts=tts.available,
+        available=True if native_any else True,
+    )
 
 
 @router.post("/process", response_model=VoiceProcessResponse)

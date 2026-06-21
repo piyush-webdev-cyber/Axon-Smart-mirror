@@ -1,19 +1,32 @@
 import { Mic } from "lucide-react";
 import { cn } from "@/utils/cn";
-import { LISTENING_FOR_WAKE_LABEL, SAY_WAKE_WORD_LABEL } from "@/constants/voiceConfig";
+import {
+  LISTENING_COMMAND_LABEL,
+  LISTENING_FOR_WAKE_LABEL,
+  SAY_WAKE_WORD_LABEL,
+  WAKE_DETECTED_LABEL,
+} from "@/constants/voiceConfig";
 import type { VoiceState } from "@/types/voice";
 import { useVoiceController } from "./useVoiceController";
 
 const STATE_LABEL: Record<VoiceState, string> = {
   idle: SAY_WAKE_WORD_LABEL,
-  listening: "Listening...",
-  processing: "Thinking...",
+  listening: LISTENING_COMMAND_LABEL,
+  processing: "Processing...",
   speaking: "Speaking...",
 };
 
-function getLabel(state: VoiceState, micReady: boolean, wakeActive: boolean): string {
+function getLabel(
+  state: VoiceState,
+  micReady: boolean,
+  wakeActive: boolean,
+  wakePulse: boolean,
+): string {
   if (!micReady && state === "idle") {
     return "Allow microphone access";
+  }
+  if (wakePulse && state === "idle") {
+    return WAKE_DETECTED_LABEL;
   }
   if (wakeActive && state === "idle") {
     return LISTENING_FOR_WAKE_LABEL;
@@ -39,8 +52,8 @@ const WAVE_BARS = [
  * only for 60 FPS on the Pi.
  */
 export function MicButton() {
-  const { state, micReady, wakeActive, transcript, reply, press } = useVoiceController();
-  const label = getLabel(state, micReady, wakeActive);
+  const { state, micReady, wakeActive, wakePulse, transcript, reply, press } = useVoiceController();
+  const label = getLabel(state, micReady, wakeActive, wakePulse);
 
   const isIdle = state === "idle";
   const isListening = state === "listening";
@@ -48,6 +61,7 @@ export function MicButton() {
   const isSpeaking = state === "speaking";
   const isActive = isListening || isSpeaking;
   const isArmed = micReady && wakeActive && isIdle;
+  const isWakeFlash = wakePulse && isIdle;
 
   return (
     <div className="flex flex-col items-center gap-2">
@@ -68,7 +82,7 @@ export function MicButton() {
           aria-hidden
           className={cn(
             "ai-aura absolute -inset-[36%] rounded-full blur-xl gpu animate-[orbit_20s_linear_infinite] transition-opacity duration-700",
-            isActive ? "opacity-75" : isProcessing ? "opacity-62" : isArmed ? "opacity-55" : "opacity-35",
+            isActive ? "opacity-75" : isWakeFlash ? "opacity-90 animate-glow-pulse" : isProcessing ? "opacity-62" : isArmed ? "opacity-55" : "opacity-35",
           )}
         />
 
@@ -90,7 +104,7 @@ export function MicButton() {
           aria-hidden
           className={cn(
             "glass-surface absolute inset-0 rounded-full transition-shadow duration-500",
-            isIdle && (isArmed ? "animate-pulse-ring" : "animate-breathe"),
+            isIdle && (isWakeFlash ? "ring-glow animate-pulse-ring" : isArmed ? "animate-pulse-ring" : "animate-breathe"),
             isListening && "ring-glow",
             isSpeaking && "ring-glow",
           )}

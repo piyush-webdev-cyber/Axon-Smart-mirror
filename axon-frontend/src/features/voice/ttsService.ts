@@ -1,14 +1,28 @@
 /**
  * Browser text-to-speech (Pi / Chromium compatible).
+ * Electron uses Piper via nativeTtsAdapter when available.
  */
+
+import { isNativeVoiceEngine } from "@/features/voice/native/voiceEngineMode";
+import {
+  isNativeSpeaking,
+  isNativeTtsSupported,
+  speakNative,
+  stopNativeSpeaking,
+} from "@/features/voice/native/nativeTtsAdapter";
 
 let speaking = false;
 
 export function isTtsSupported(): boolean {
+  if (isNativeVoiceEngine() && isNativeTtsSupported()) return true;
   return typeof window !== "undefined" && "speechSynthesis" in window;
 }
 
 export function speak(text: string): Promise<void> {
+  if (isNativeVoiceEngine() && isNativeTtsSupported()) {
+    return speakNative(text);
+  }
+
   return new Promise((resolve, reject) => {
     if (!isTtsSupported()) {
       reject(new Error("Text-to-speech is not supported."));
@@ -47,6 +61,10 @@ export function speak(text: string): Promise<void> {
 }
 
 export function stopSpeaking(): void {
+  if (isNativeVoiceEngine()) {
+    stopNativeSpeaking();
+    return;
+  }
   if (isTtsSupported()) {
     window.speechSynthesis.cancel();
   }
@@ -54,5 +72,6 @@ export function stopSpeaking(): void {
 }
 
 export function isSpeaking(): boolean {
+  if (isNativeVoiceEngine()) return isNativeSpeaking();
   return speaking;
 }

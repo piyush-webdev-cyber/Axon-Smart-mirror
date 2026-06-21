@@ -31,10 +31,13 @@ function toWebSocketUrl(raw: string): string {
 
   const path = raw.startsWith("/") ? raw : `/${raw}`;
 
-  // In dev, connect directly to the backend WS endpoint. Vite's HTTP proxy
-  // often fails WebSocket upgrades ("closed before handshake"), and localhost
-  // vs 127.0.0.1 mismatches break the proxied path.
-  if (import.meta.env.DEV) {
+  // Electron and explicit remote-backend mode always use configured URLs.
+  const remoteBackend =
+    import.meta.env.MODE === "electron" ||
+    import.meta.env.VITE_USE_REMOTE_BACKEND === "true";
+
+  // In browser dev, connect directly to local backend WS unless remote is configured.
+  if (import.meta.env.DEV && !remoteBackend) {
     return `ws://127.0.0.1:8010${path}`;
   }
 

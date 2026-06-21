@@ -4,7 +4,18 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.routes import auth, devices, gallery, health, photos, system, users, voice, weather
+from app.api.routes import (
+    auth,
+    devices,
+    gallery,
+    health,
+    photos,
+    system,
+    users,
+    voice,
+    voice_desktop,
+    weather,
+)
 from app.api.routes.placeholders import placeholder_routers
 
 api_router = APIRouter()
@@ -21,6 +32,7 @@ api_router.include_router(photos.router)
 api_router.include_router(gallery.router)
 api_router.include_router(weather.router)
 api_router.include_router(voice.router)
+api_router.include_router(voice_desktop.router)
 
 # Reserved future-feature placeholders (HTTP 501)
 for router in placeholder_routers:

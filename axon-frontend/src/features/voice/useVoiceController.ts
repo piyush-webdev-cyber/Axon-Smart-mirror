@@ -7,6 +7,7 @@ interface VoiceController {
   state: VoiceState;
   micReady: boolean;
   wakeActive: boolean;
+  wakePulse: boolean;
   transcript: string;
   reply: string;
   /** Manual fallback only — wake word is primary. */
@@ -17,6 +18,7 @@ export function useVoiceController(): VoiceController {
   const state = useAppStore((s) => s.voiceState);
   const micReady = useAppStore((s) => s.voiceMicReady);
   const wakeActive = useAppStore((s) => s.voiceWakeActive);
+  const wakePulse = useAppStore((s) => s.voiceWakeDetectedPulse);
   const transcript = useAppStore((s) => s.voiceTranscript);
   const reply = useAppStore((s) => s.voiceReply);
 
@@ -33,5 +35,5 @@ export function useVoiceController(): VoiceController {
     }
   }, [state]);
 
-  return { state, micReady, wakeActive, transcript, reply, press };
+  return { state, micReady, wakeActive, wakePulse, transcript, reply, press };
 }

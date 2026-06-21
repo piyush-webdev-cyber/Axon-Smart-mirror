@@ -7,6 +7,8 @@ import {
   type SpeechRecognitionEvent,
   type SpeechRecognitionInstance,
 } from "./speechRecognition";
+import { isNativeVoiceEngine } from "@/features/voice/native/voiceEngineMode";
+import { nativeSttAdapter } from "@/features/voice/native/nativeSttAdapter";
 
 export interface SttCallbacks {
   onInterim: (text: string) => void;
@@ -16,6 +18,11 @@ export interface SttCallbacks {
   onStart?: () => void;
 }
 
+export interface SttStartOptions {
+  /** Backend already capturing after wake-word detection. */
+  fromWakeWord?: boolean;
+}
+
 export class SttSession {
   private recognition: SpeechRecognitionInstance | null = null;
   private running = false;
@@ -23,10 +30,16 @@ export class SttSession {
   private readonly maxListenMs = 8000;
 
   isSupported(): boolean {
+    if (isNativeVoiceEngine()) return nativeSttAdapter.isSupported();
     return getSpeechRecognition() !== null;
   }
 
-  start(callbacks: SttCallbacks): void {
+  start(callbacks: SttCallbacks, options?: SttStartOptions): void {
+    if (isNativeVoiceEngine()) {
+      nativeSttAdapter.start(callbacks, options);
+      return;
+    }
+
     const Ctor = getSpeechRecognition();
     if (!Ctor) {
       callbacks.onError("Speech recognition is not supported.");
@@ -113,6 +126,11 @@ export class SttSession {
   }
 
   stop(): void {
+    if (isNativeVoiceEngine()) {
+      nativeSttAdapter.stop();
+      return;
+    }
+
     this.running = false;
     this.clearSilenceTimer();
     try {

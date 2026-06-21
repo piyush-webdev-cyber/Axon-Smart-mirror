@@ -6,7 +6,9 @@
   "description": "Axon AI Smart Mirror - frontend (Phase 1 foundation)",
   "scripts": {
     "dev": "vite --config vite.config.ts",
+    "dev:electron": "vite --config vite.config.ts --mode electron --host",
     "build": "tsc -b && vite build --config vite.config.ts",
+    "build:electron": "tsc -b && vite build --config vite.config.ts --mode electron",
     "preview": "vite preview --config vite.config.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"

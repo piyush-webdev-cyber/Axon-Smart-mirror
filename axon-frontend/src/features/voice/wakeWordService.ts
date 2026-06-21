@@ -7,6 +7,8 @@
  */
 
 import { buildWakeWordPattern, WAKE_WORD } from "@/constants/voiceConfig";
+import { isNativeVoiceEngine } from "@/features/voice/native/voiceEngineMode";
+import { nativeWakeWordAdapter } from "@/features/voice/native/nativeWakeWordAdapter";
 import {
   getSpeechRecognition,
   type SpeechRecognitionErrorEvent,
@@ -49,6 +51,7 @@ export class WakeWordService {
   }
 
   isSupported(): boolean {
+    if (isNativeVoiceEngine()) return nativeWakeWordAdapter.isSupported();
     return getSpeechRecognition() !== null;
   }
 
@@ -58,7 +61,16 @@ export class WakeWordService {
 
   /** Start always-on wake word detection. */
   start(handlers: WakeWordHandlers): void {
-    if (!this.isSupported()) {
+    if (isNativeVoiceEngine()) {
+      nativeWakeWordAdapter.start(handlers, () => this.startBrowserSession(handlers));
+      return;
+    }
+
+    this.startBrowserSession(handlers);
+  }
+
+  private startBrowserSession(handlers: WakeWordHandlers): void {
+    if (!getSpeechRecognition()) {
       handlers.onError?.("Speech recognition is not supported in this browser.");
       return;
     }
@@ -71,6 +83,11 @@ export class WakeWordService {
 
   /** Pause while STT / TTS is active (mic is exclusive). */
   pause(): void {
+    if (isNativeVoiceEngine()) {
+      nativeWakeWordAdapter.pause();
+      return;
+    }
+
     this.paused = true;
     this.armed = false;
     this.clearRestart();
@@ -80,6 +97,11 @@ export class WakeWordService {
 
   /** Resume always-on listening after a voice session completes. */
   resume(): void {
+    if (isNativeVoiceEngine()) {
+      nativeWakeWordAdapter.resume();
+      return;
+    }
+
     if (!this.handlers) return;
     this.paused = false;
     this.armed = true;
@@ -87,6 +109,11 @@ export class WakeWordService {
   }
 
   stop(): void {
+    if (isNativeVoiceEngine()) {
+      nativeWakeWordAdapter.stop();
+      return;
+    }
+
     this.paused = false;
     this.armed = false;
     this.clearRestart();

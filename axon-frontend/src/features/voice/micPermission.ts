@@ -1,5 +1,7 @@
 /** Microphone access for always-on wake word (no button press required). */
 
+import { isNativeVoiceEngine } from "@/features/voice/native/voiceEngineMode";
+
 let micGranted = false;
 let pending: Promise<boolean> | null = null;
 
@@ -8,10 +10,15 @@ export function isMicGranted(): boolean {
 }
 
 export function isSpeechRecognitionAvailable(): boolean {
+  if (isNativeVoiceEngine()) return true;
   return Boolean(
     typeof window !== "undefined" &&
       (window.SpeechRecognition || window.webkitSpeechRecognition),
   );
+}
+
+export function isVoiceEngineAvailable(): boolean {
+  return isSpeechRecognitionAvailable();
 }
 
 async function queryMicPermission(): Promise<PermissionState | null> {
