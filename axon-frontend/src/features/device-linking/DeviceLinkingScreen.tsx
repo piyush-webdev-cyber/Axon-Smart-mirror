@@ -52,11 +52,12 @@ export function DeviceLinkingScreen() {
   useEffect(() => {
     if (!deviceCode) return;
 
+    const code = deviceCode.code;
     let intervalId: NodeJS.Timeout;
 
     async function checkStatus() {
       try {
-        const statusData = await deviceApi.checkDeviceStatus(deviceCode.code);
+        const statusData = await deviceApi.checkDeviceStatus(code);
         setStatus(statusData);
 
         // If linked, we're done

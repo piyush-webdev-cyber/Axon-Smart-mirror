@@ -23,28 +23,35 @@ function parseApiError(body: unknown, fallback: string): string {
 }
 
 function normalizeSnapshot(raw: Record<string, unknown>): WeatherSnapshot {
-  return {
+  const snapshot: WeatherSnapshot = {
     temperature: Number(raw.temperature ?? 0),
     unit: (raw.unit as WeatherSnapshot["unit"]) ?? "celsius",
     condition: (raw.condition as WeatherSnapshot["condition"]) ?? "unknown",
     label: String(raw.label ?? "Unknown"),
     location: String(raw.location ?? "Unknown"),
-    feelsLike:
-      raw.feels_like != null
-        ? Number(raw.feels_like)
-        : raw.feelsLike != null
-          ? Number(raw.feelsLike)
-          : undefined,
-    humidity: raw.humidity != null ? Number(raw.humidity) : undefined,
-    high: raw.high != null ? Number(raw.high) : undefined,
-    low: raw.low != null ? Number(raw.low) : undefined,
-    observedAt:
-      typeof raw.observed_at === "string"
-        ? raw.observed_at
-        : typeof raw.observedAt === "string"
-          ? raw.observedAt
-          : undefined,
   };
+
+  const feelsLike =
+    raw.feels_like != null
+      ? Number(raw.feels_like)
+      : raw.feelsLike != null
+        ? Number(raw.feelsLike)
+        : null;
+  if (feelsLike != null) snapshot.feelsLike = feelsLike;
+
+  if (raw.humidity != null) snapshot.humidity = Number(raw.humidity);
+  if (raw.high != null) snapshot.high = Number(raw.high);
+  if (raw.low != null) snapshot.low = Number(raw.low);
+
+  const observedAt =
+    typeof raw.observed_at === "string"
+      ? raw.observed_at
+      : typeof raw.observedAt === "string"
+        ? raw.observedAt
+        : null;
+  if (observedAt) snapshot.observedAt = observedAt;
+
+  return snapshot;
 }
 
 export async function fetchCurrentWeather(

@@ -29,8 +29,10 @@ export default defineConfig({
         port: 5173,
         host: true,
         strictPort: true,
+        // Allow opening dev server from phone via LAN IP (Host header check)
+        allowedHosts: true,
         hmr: {
-            // Keep HMR WebSocket aligned when the app is opened via localhost or 127.0.0.1
+            // Phones on LAN use the same port; avoid hardcoding localhost for HMR
             clientPort: 5173,
         },
         proxy: {
