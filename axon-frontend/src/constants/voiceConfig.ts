@@ -22,7 +22,7 @@ export const LISTENING_FOR_WAKE_LABEL = `Listening for ${WAKE_WORD}`;
 export const WAKE_DETECTED_LABEL = "Wake word detected";
 
 /** Active command capture. */
-export const LISTENING_COMMAND_LABEL = "Listening";
+export const LISTENING_COMMAND_LABEL = "Recording";
 
 /** Case-insensitive whole-word match for wake detection in STT transcripts. */
 export function buildWakeWordPattern(): RegExp {

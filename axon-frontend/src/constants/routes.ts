@@ -5,6 +5,7 @@ export const ROUTES = {
   camera: "/camera",
   gallery: "/gallery",
   gallerySession: "/gallery/session/:token",
+  profile: "/profile/:id",
   link: "/link/:code",
   auth: "/auth",
   login: "/auth/login",
@@ -12,3 +13,7 @@ export const ROUTES = {
 } as const;
 
 export type RoutePath = (typeof ROUTES)[keyof typeof ROUTES];
+
+export function profilePath(userId: string) {
+  return `/profile/${encodeURIComponent(userId)}`;
+}

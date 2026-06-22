@@ -44,6 +44,17 @@ class VoiceStatusResponse(CamelModel):
     native_wakeword: bool = False
     native_stt: bool = False
     native_tts: bool = False
+    pipeline_running: bool = False
+    pipeline_state: str = "stopped"
+
+
+class VoicePipelineStatusResponse(CamelModel):
+    running: bool = False
+    state: str = "stopped"
+    wake_word: str = WAKE_WORD
+    wakeword: dict[str, object] | None = None
+    stt: dict[str, object] | None = None
+    tts: dict[str, object] | None = None
 
 
 class VoiceTtsRequest(CamelModel):

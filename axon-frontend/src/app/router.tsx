@@ -8,6 +8,7 @@ import { BrandedLoader } from "@/components/common/BrandedLoader";
 // Route-based code splitting keeps the initial mirror bundle minimal on the Pi.
 const HomePage = lazy(() => import("@/pages/HomePage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
+const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 const CameraPage = lazy(() => import("@/pages/CameraPage"));
 const GalleryPage = lazy(() => import("@/pages/GalleryPage"));
 const GallerySessionPage = lazy(() => import("@/pages/GallerySessionPage"));
@@ -30,6 +31,14 @@ export const router = createBrowserRouter([
         element: lazyPage(
           <RequireAuth>
             <SettingsPage />
+          </RequireAuth>,
+        ),
+      },
+      {
+        path: "profile/:id",
+        element: lazyPage(
+          <RequireAuth>
+            <ProfilePage />
           </RequireAuth>,
         ),
       },

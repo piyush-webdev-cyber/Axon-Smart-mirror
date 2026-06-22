@@ -72,7 +72,7 @@ class TtsService:
                 timeout=30,
             )
             if proc.returncode != 0:
-                logger.error("Piper failed: %s", proc.stderr)
+                logger.error("[TTS] Piper failed: %s", proc.stderr)
                 return b""
             return Path(out_path).read_bytes()
         except Exception as exc:  # noqa: BLE001

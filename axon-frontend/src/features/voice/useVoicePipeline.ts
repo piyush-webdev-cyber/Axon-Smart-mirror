@@ -15,6 +15,8 @@ import {
   primeAudioContext,
   requestMicAccess,
 } from "@/features/voice/micPermission";
+import { nativeVoiceClient } from "@/features/voice/native/nativeVoiceClient";
+import { isNativeVoiceEngine } from "@/features/voice/native/voiceEngineMode";
 import { registerVoiceEngine } from "@/features/voice/voiceEngine";
 import {
   playErrorSound,
@@ -29,6 +31,7 @@ import { websocketClient } from "@/services/websocketClient";
 import { useAppStore } from "@/store";
 import type { VoiceAction, VoiceProcessResult } from "@/types/voiceAssistant";
 import type { VoiceState } from "@/types/voice";
+import type { NativeVoiceEvent } from "@/types/axonVoice";
 
 import {
   stripWakeWordPrefix,
@@ -78,6 +81,8 @@ export function useVoicePipeline(): void {
   const beginListeningRef = useRef<(fromWakeWord?: boolean) => Promise<void>>(
     async () => {},
   );
+  const nativeModeRef = useRef(isNativeVoiceEngine());
+  const pendingActionRef = useRef<VoiceAction | null>(null);
 
   useEffect(() => {
     const unsub = useAppStore.subscribe((state, prev) => {
@@ -104,8 +109,57 @@ export function useVoicePipeline(): void {
     websocketClient.send(type, payload);
   }, []);
 
+  const runImmediateAction = useCallback(
+    (action: VoiceAction | null | undefined) => {
+      if (!action) return;
+      const immediateActions: VoiceAction[] = [
+        "take_photo",
+        "open_camera",
+        "open_gallery",
+        "show_gallery_qr",
+        "go_home",
+        "delete_photo",
+      ];
+      if (immediateActions.includes(action)) {
+        executeVoiceAction(action, navigate);
+      }
+    },
+    [navigate],
+  );
+
+  const finishSpeaking = useCallback(
+    (action: VoiceAction | null | undefined) => {
+      if (action) {
+        const immediateActions: VoiceAction[] = [
+          "take_photo",
+          "open_camera",
+          "open_gallery",
+          "show_gallery_qr",
+          "go_home",
+          "delete_photo",
+        ];
+        if (!immediateActions.includes(action)) {
+          executeVoiceAction(action, navigate);
+        }
+      }
+      dispatch("done");
+      emit(WS_EVENTS.voiceComplete, {});
+      setTranscript("");
+      processingRef.current = false;
+      setWakeActive(true);
+    },
+    [dispatch, emit, navigate, setTranscript, setWakeActive],
+  );
+
   const armWakeWord = useCallback(() => {
     if (!isVoiceEngineAvailable() || !micReadyRef.current) return;
+
+    if (nativeModeRef.current) {
+      nativeVoiceClient.resetWake();
+      setWakeActive(true);
+      return;
+    }
+
     if (wakeWordService.isArmed()) return;
 
     wakeWordService.start({
@@ -132,6 +186,8 @@ export function useVoicePipeline(): void {
   }, [emit, setMicReady, setTranscript, setWakeActive, setWakePulse]);
 
   const ensureMic = useCallback(async (): Promise<boolean> => {
+    if (nativeModeRef.current && micReadyRef.current) return true;
+
     if (micReadyRef.current || isMicGranted()) {
       micReadyRef.current = true;
       setMicReady(true);
@@ -155,22 +211,7 @@ export function useVoicePipeline(): void {
       dispatch("responseReady");
       emit(WS_EVENTS.voiceSpeaking, { reply: result.reply });
 
-      // Navigation / capture must start immediately for camera commands —
-      // waiting for TTS leaves the preview unready and capture silently fails.
-      const immediateActions: VoiceAction[] = [
-        "take_photo",
-        "open_camera",
-        "open_gallery",
-        "show_gallery_qr",
-        "go_home",
-        "delete_photo",
-      ];
-      const action = result.action;
-      const runNow = action && immediateActions.includes(action);
-
-      if (runNow) {
-        executeVoiceAction(action, navigate);
-      }
+      runImmediateAction(result.action);
 
       try {
         await speak(result.reply);
@@ -178,17 +219,10 @@ export function useVoicePipeline(): void {
         /* TTS failure should not block returning to idle */
       }
 
-      if (action && !runNow) {
-        executeVoiceAction(action, navigate);
-      }
-
-      dispatch("done");
-      emit(WS_EVENTS.voiceComplete, {});
-      setTranscript("");
-      processingRef.current = false;
-      armWakeWord();
+      finishSpeaking(result.action);
+      if (!nativeModeRef.current) armWakeWord();
     },
-    [armWakeWord, dispatch, emit, navigate, setReply, setTranscript],
+    [armWakeWord, dispatch, emit, finishSpeaking, runImmediateAction, setReply],
   );
 
   const processTranscript = useCallback(
@@ -203,7 +237,7 @@ export function useVoicePipeline(): void {
       }
 
       processingRef.current = true;
-      sttSession.stop();
+      if (!nativeModeRef.current) sttSession.stop();
       setTranscript(transcript);
       emit(WS_EVENTS.voiceTranscript, { transcript });
       dispatch("stopListening");
@@ -238,10 +272,26 @@ export function useVoicePipeline(): void {
     async (fromWakeWord = false) => {
       if (voiceStateRef.current !== "idle" && !fromWakeWord) return;
 
+      if (nativeModeRef.current) {
+        const ready = await ensureMic();
+        if (!ready) return;
+        if (!fromWakeWord) {
+          nativeVoiceClient.startSttCapture();
+        }
+        setWakeActive(false);
+        setTranscript("");
+        setReply("");
+        dispatch("startListening");
+        emit(WS_EVENTS.voiceListening, { fromWakeWord });
+        return;
+      }
+
       const ready = await ensureMic();
       if (!ready) return;
 
-      wakeWordService.pause();
+      if (!fromWakeWord) {
+        wakeWordService.pause();
+      }
       setWakeActive(false);
       setTranscript("");
       setReply("");
@@ -289,15 +339,19 @@ export function useVoicePipeline(): void {
   );
 
   const cancelActive = useCallback(() => {
-    sttSession.stop();
-    stopSpeaking();
+    if (nativeModeRef.current) {
+      nativeVoiceClient.stopSttCapture();
+      nativeVoiceClient.stopPlayback();
+    } else {
+      sttSession.stop();
+      stopSpeaking();
+    }
     processingRef.current = false;
     dispatch("cancel");
     setTranscript("");
     armWakeWord();
   }, [armWakeWord, dispatch, setTranscript]);
 
-  /** Manual fallback — mic button only. */
   const manualWake = useCallback(() => {
     void beginListening(false);
   }, [beginListening]);
@@ -315,8 +369,104 @@ export function useVoicePipeline(): void {
     return () => registerVoiceEngine(null);
   }, [manualWake, cancelActive, ensureMic]);
 
-  /** Boot always-on wake word on mirror load — no button press. */
+  /** Native Electron pipeline — backend handles wake, STT, Gemini, and TTS. */
   useEffect(() => {
+    if (!isNativeVoiceEngine()) return;
+
+    nativeModeRef.current = true;
+
+    const handleNativeEvent = (event: NativeVoiceEvent) => {
+      switch (event.type) {
+        case "wake_armed":
+          setWakeActive(true);
+          setWakePulse(false);
+          break;
+        case "wakeword_detected":
+        case "wake_detected":
+          void primeAudioContext();
+          playWakeActivationSound();
+          setWakePulse(true);
+          window.setTimeout(() => setWakePulse(false), 900);
+          emit(WS_EVENTS.voiceWakeDetected, { wakeWord: WAKE_WORD });
+          break;
+        case "recording_started":
+          skipListeningSoundRef.current = true;
+          setWakeActive(false);
+          setTranscript("");
+          dispatch("startListening");
+          emit(WS_EVENTS.voiceListening, { fromWakeWord: true });
+          break;
+        case "stt_final": {
+          const cleaned = cleanTranscript(event.text);
+          if (cleaned) setTranscript(cleaned);
+          break;
+        }
+        case "processing_started":
+          dispatch("stopListening");
+          emit(WS_EVENTS.voiceProcessing, { transcript: event.transcript ?? "" });
+          processingRef.current = true;
+          break;
+        case "response_ready": {
+          setReply(event.reply);
+          pendingActionRef.current = (event.action as VoiceAction | null | undefined) ?? null;
+          emit(WS_EVENTS.voiceResponse, { reply: event.reply, action: event.action });
+          runImmediateAction(pendingActionRef.current);
+          break;
+        }
+        case "speaking_started":
+          if (voiceStateRef.current === "processing") {
+            dispatch("responseReady");
+          }
+          emit(WS_EVENTS.voiceSpeaking, { reply: event.text });
+          break;
+        case "listening_resumed":
+          finishSpeaking(pendingActionRef.current);
+          pendingActionRef.current = null;
+          break;
+        case "error":
+          playErrorSound();
+          dispatch("error");
+          setTranscript(event.message);
+          processingRef.current = false;
+          break;
+        default:
+          break;
+      }
+    };
+
+    const unsub = nativeVoiceClient.subscribe(handleNativeEvent);
+
+    void (async () => {
+      const ok = await nativeVoiceClient.start();
+      if (ok) {
+        micReadyRef.current = true;
+        setMicReady(true);
+        setWakeActive(true);
+      } else {
+        setTranscript("Voice backend unavailable. Start the local FastAPI voice service.");
+      }
+    })();
+
+    return () => {
+      unsub();
+      nativeVoiceClient.stop();
+    };
+  }, [
+    dispatch,
+    emit,
+    finishSpeaking,
+    runImmediateAction,
+    setMicReady,
+    setReply,
+    setTranscript,
+    setWakeActive,
+    setWakePulse,
+  ]);
+
+  /** Browser boot — Web Speech wake word. */
+  useEffect(() => {
+    if (isNativeVoiceEngine()) return;
+
     if (!isVoiceEngineAvailable()) {
       setTranscript("Voice requires Chrome, Edge, or the Axon desktop app.");
       return;

@@ -56,10 +56,14 @@ class Settings(BaseSettings):
 
     # --- Native voice (Electron / Raspberry Pi) ----------------------------
     voice_wakeword_model_path: str = Field(default="", alias="AXON_WAKEWORD_MODEL_PATH")
+    voice_wakeword_engine: str = Field(default="auto", alias="AXON_WAKEWORD_ENGINE")
+    voice_porcupine_access_key: str = Field(default="", alias="AXON_PORCUPINE_ACCESS_KEY")
+    voice_porcupine_keyword_path: str = Field(default="", alias="AXON_PORCUPINE_KEYWORD_PATH")
     voice_whisper_model: str = Field(default="base.en", alias="AXON_WHISPER_MODEL")
     voice_whisper_device: str = Field(default="cpu", alias="AXON_WHISPER_DEVICE")
     voice_piper_bin: str = Field(default="", alias="AXON_PIPER_BIN")
     voice_piper_model: str = Field(default="", alias="AXON_PIPER_MODEL")
+    voice_port: int = Field(default=8010, alias="AXON_VOICE_PORT")
 
     @field_validator("cors_origins", mode="before")
     @classmethod

@@ -93,7 +93,7 @@ class SttService:
                 compute_type=compute_type,
             )
             logger.info(
-                "STT model loaded: %s (device=%s)",
+                "[STT] Model loaded: %s (device=%s)",
                 self._model_size,
                 self._device,
             )

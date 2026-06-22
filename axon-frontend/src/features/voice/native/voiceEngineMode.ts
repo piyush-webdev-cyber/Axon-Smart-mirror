@@ -14,10 +14,10 @@ export function isNativeVoiceEngine(): boolean {
 }
 
 export function isVoiceEngineAvailable(): boolean {
+  if (isNativeVoiceEngine()) return true;
   const browserSpeech = Boolean(
     typeof window !== "undefined" &&
       (window.SpeechRecognition || window.webkitSpeechRecognition),
   );
-  if (browserSpeech) return true;
-  return isNativeVoiceEngine();
+  return browserSpeech;
 }

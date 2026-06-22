@@ -1,6 +1,6 @@
 /**
- * WebSocket + microphone capture for native wake word / STT pipeline.
- * Runs locally against FastAPI (OpenWakeWord + Faster-Whisper).
+ * WebSocket + microphone capture for native wake word / STT / TTS pipeline.
+ * Streams PCM16 mono 16 kHz to FastAPI (OpenWakeWord + Faster-Whisper + Piper).
  */
 
 import { env } from "@/utils/env";
@@ -12,8 +12,7 @@ type EventHandler = (event: NativeVoiceEvent) => void;
 
 async function resolveVoiceBackendBase(): Promise<string | null> {
   const fromShell = window.axonVoice?.getVoiceBackendUrl?.();
-  const resolved =
-    fromShell instanceof Promise ? await fromShell : fromShell;
+  const resolved = fromShell instanceof Promise ? await fromShell : fromShell;
 
   if (typeof resolved === "string" && resolved.trim()) {
     return resolved.replace(/\/$/, "");
@@ -63,6 +62,8 @@ class NativeVoiceClient {
   private source: MediaStreamAudioSourceNode | null = null;
   private running = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private currentAudio: HTMLAudioElement | null = null;
+  private ttsQueue: Promise<void> = Promise.resolve();
 
   isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
@@ -103,6 +104,16 @@ class NativeVoiceClient {
     this.running = true;
     await this.connectWs(wsUrl);
     this.startAudioCapture();
+
+    try {
+      const base = await resolveVoiceBackendBase();
+      if (base) {
+        await fetch(`${base}/api/v1/voice/start`, { method: "POST" });
+      }
+    } catch {
+      /* pipeline may already be running via WS connect */
+    }
+
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
@@ -112,6 +123,7 @@ class NativeVoiceClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.stopPlayback();
     this.teardownAudio();
     try {
       this.ws?.close();
@@ -131,7 +143,7 @@ class NativeVoiceClient {
   }
 
   resumeWake(): void {
-    this.sendControl("resume_wake");
+    this.sendControl("reset");
   }
 
   startSttCapture(): void {
@@ -160,6 +172,48 @@ class NativeVoiceClient {
     }
   }
 
+  playWavBuffer(buffer: ArrayBuffer): Promise<void> {
+    this.ttsQueue = this.ttsQueue.then(() => this._playWavBuffer(buffer));
+    return this.ttsQueue;
+  }
+
+  playText(text: string): Promise<void> {
+    this.ttsQueue = this.ttsQueue.then(async () => {
+      const wav = await this.synthesize(text);
+      if (wav) await this._playWavBuffer(wav);
+    });
+    return this.ttsQueue;
+  }
+
+  stopPlayback(): void {
+    if (this.currentAudio) {
+      this.currentAudio.pause();
+      this.currentAudio.src = "";
+      this.currentAudio = null;
+    }
+  }
+
+  private _playWavBuffer(buffer: ArrayBuffer): Promise<void> {
+    this.stopPlayback();
+    return new Promise((resolve, reject) => {
+      const blob = new Blob([buffer], { type: "audio/wav" });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      this.currentAudio = audio;
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        this.currentAudio = null;
+        resolve();
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        this.currentAudio = null;
+        reject(new Error("Native speech playback failed."));
+      };
+      void audio.play().catch(reject);
+    });
+  }
+
   private async connectWs(url: string): Promise<void> {
     if (!this.running) return;
 
@@ -172,12 +226,13 @@ class NativeVoiceClient {
         return;
       }
 
-      this.ws.onopen = () => {
-        this.emit({ type: "wake_armed", wakeWord: "Nexa" });
-        resolve();
-      };
+      this.ws.onopen = () => resolve();
 
       this.ws.onmessage = (message) => {
+        if (message.data instanceof ArrayBuffer) {
+          void this.playWavBuffer(message.data);
+          return;
+        }
         if (typeof message.data !== "string") return;
         try {
           const event = JSON.parse(message.data) as NativeVoiceEvent;

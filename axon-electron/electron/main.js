@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, shell, session } = require("electron");
 const path = require("node:path");
 const { createSettingsStore } = require("./settingsStore");
+const { startVoiceServer, stopVoiceServer } = require("./voiceServer");
 
 const isDev = process.env.AXON_ELECTRON_DEV === "1" || !app.isPackaged;
 
@@ -74,8 +75,25 @@ function applyAutoLaunch(enabled) {
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   store = createSettingsStore();
+
+  const voicePort = Number(process.env.AXON_VOICE_PORT || 8010);
+  const voiceUrl =
+    process.env.AXON_VOICE_BACKEND_URL ||
+    store?.get("voiceBackendUrl") ||
+    `http://127.0.0.1:${voicePort}`;
+
+  if (process.env.AXON_VOICE_AUTOSTART !== "0") {
+    try {
+      await startVoiceServer(voicePort);
+      // eslint-disable-next-line no-console
+      console.info(`[axon-electron] Voice backend ready at ${voiceUrl}`);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("[axon-electron] Failed to start voice backend:", error);
+    }
+  }
 
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     if (permission === "geolocation" || permission === "media") {
@@ -119,9 +137,14 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
+  stopVoiceServer();
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+app.on("before-quit", () => {
+  stopVoiceServer();
 });
 
 process.on("uncaughtException", (error) => {
