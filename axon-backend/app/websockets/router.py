@@ -19,6 +19,13 @@ logger = get_logger(__name__)
 ws_router = APIRouter()
 
 
+def _client_label(websocket: WebSocket) -> str:
+    client = websocket.client
+    if client is None:
+        return "unknown"
+    return f"{client.host}:{client.port}"
+
+
 def _resolve_user_id(token: str | None) -> str | None:
     if not token:
         logger.info("WS auth skipped: anonymous connection")
@@ -32,28 +39,82 @@ def _resolve_user_id(token: str | None) -> str | None:
         return None
 
 
+async def _send_ws_error(websocket: WebSocket, message: str) -> None:
+    try:
+        await connection_manager.send(
+            websocket,
+            WsEvent.SYSTEM_ERROR,
+            {"message": message},
+        )
+    except Exception as send_exc:  # noqa: BLE001
+        logger.warning(
+            "WS failed to send error frame to %s: %s",
+            _client_label(websocket),
+            send_exc,
+        )
+
+
 @ws_router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str | None = None) -> None:
-    logger.info("WS connection attempt from %s", websocket.client)
+    client = _client_label(websocket)
+    logger.info(
+        "WS connect attempt | client=%s | has_token=%s | path=%s",
+        client,
+        bool(token),
+        websocket.url.path,
+    )
+
     user_id: str | None = None
+    connected = False
+
     try:
         user_id = _resolve_user_id(token)
         await connection_manager.connect(websocket, user_id)
-        logger.info("WS accepted from %s", websocket.client)
+        connected = True
+        logger.info(
+            "WS accepted | client=%s | user_id=%s | total=%d",
+            client,
+            user_id,
+            connection_manager.connection_count,
+        )
+
         await connection_manager.send(
             websocket, WsEvent.SYSTEM_CONNECTED, {"status": "connected"}
         )
+        logger.info("WS sent system.connected | client=%s", client)
+
         while True:
             message = await websocket.receive_json()
             logger.info(
-                "WS message received from %s: type=%s",
-                websocket.client,
-                message.get("type"),
+                "WS message | client=%s | type=%s",
+                client,
+                message.get("type") if isinstance(message, dict) else type(message).__name__,
             )
             await connection_manager.dispatch(websocket, message)
-    except WebSocketDisconnect:
-        logger.info("WS client disconnected: %s", websocket.client)
-        connection_manager.disconnect(websocket, user_id)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("WS error for %s: %s", websocket.client, exc)
-        connection_manager.disconnect(websocket, user_id)
+
+    except WebSocketDisconnect as exc:
+        logger.info(
+            "WS disconnect | client=%s | user_id=%s | code=%s | reason=%s",
+            client,
+            user_id,
+            getattr(exc, "code", None),
+            getattr(exc, "reason", None),
+        )
+    except Exception as exc:
+        logger.exception(
+            "WS unhandled error | client=%s | user_id=%s | error=%s",
+            client,
+            user_id,
+            exc,
+        )
+        if connected:
+            await _send_ws_error(websocket, str(exc))
+    finally:
+        if connected:
+            connection_manager.disconnect(websocket, user_id)
+            logger.info(
+                "WS cleanup complete | client=%s | user_id=%s | remaining=%d",
+                client,
+                user_id,
+                connection_manager.connection_count,
+            )

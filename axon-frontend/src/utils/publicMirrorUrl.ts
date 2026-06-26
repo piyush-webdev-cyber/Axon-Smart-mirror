@@ -13,11 +13,25 @@ export function isLocalhostOrigin(): boolean {
  * Prefers VITE_PUBLIC_MIRROR_URL so phones are not sent to localhost.
  */
 export function getPublicMirrorOrigin(): string {
-  const configured = env.publicMirrorUrl?.replace(/\/$/, "");
-  if (configured) return configured;
+  if (import.meta.env.DEV && typeof window !== "undefined") {
+    const lan = (window as Window & { __AXON_LAN_ORIGIN__?: string }).__AXON_LAN_ORIGIN__;
+    if (lan) return lan.replace(/\/$/, "");
+  }
 
-  // Electron kiosk should never embed 127.0.0.1 in QR codes.
-  if (typeof window !== "undefined" && window.axonShell?.isElectron) {
+  const configured = env.publicMirrorUrl?.replace(/\/$/, "");
+  if (configured) {
+    const prodHosted = /vercel\.app|railway\.app/i.test(configured);
+    if (!(import.meta.env.DEV && prodHosted)) {
+      return configured;
+    }
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[axon] Ignoring production VITE_PUBLIC_MIRROR_URL in local dev — using LAN origin",
+    );
+  }
+
+  // Production Electron kiosk — phones open the hosted link page.
+  if (typeof window !== "undefined" && window.axonShell?.isElectron && import.meta.env.PROD) {
     return "https://axon-smart-mirror.vercel.app";
   }
 

@@ -1,6 +1,7 @@
 import { Outlet } from "react-router-dom";
 import { WeatherWidget } from "@/features/weather/WeatherWidget";
 import { MicButton } from "@/features/voice/MicButton";
+import { VoiceCaptions } from "@/features/voice/VoiceCaptions";
 import { SystemStatusBar } from "@/features/system-status/SystemStatusBar";
 import { Sidebar } from "@/components/navigation/Sidebar";
 import { VoiceEffects } from "@/features/voice/VoiceEffects";
@@ -55,6 +56,7 @@ export function MirrorLayout() {
             deviceLinkUiActive && "pointer-events-none opacity-30",
           )}
         >
+          <VoiceCaptions />
           <MicButton />
           <SystemStatusBar />
         </footer>

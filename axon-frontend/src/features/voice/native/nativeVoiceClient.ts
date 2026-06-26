@@ -60,13 +60,29 @@ class NativeVoiceClient {
   private mediaStream: MediaStream | null = null;
   private processor: ScriptProcessorNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
+  private muteGain: GainNode | null = null;
   private running = false;
+  private connecting = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private currentAudio: HTMLAudioElement | null = null;
   private ttsQueue: Promise<void> = Promise.resolve();
+  private lastPcmSentAt = 0;
+  private unlockBound = false;
+  private piperKnownUnavailable = false;
+  private localMicActive = false;
 
   isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  isLocalMicActive(): boolean {
+    return this.localMicActive;
+  }
+
+  isAudioStreaming(): boolean {
+    if (this.localMicActive && this.isConnected()) return true;
+    if (this.audioContext?.state !== "running") return false;
+    return Date.now() - this.lastPcmSentAt < 2500;
   }
 
   subscribe(handler: EventHandler): () => void {
@@ -80,45 +96,124 @@ class NativeVoiceClient {
     }
   }
 
+  /** Must run after a user gesture so wake-word PCM reaches the backend. */
+  async unlockAudio(): Promise<boolean> {
+    if (!this.mediaStream) return false;
+
+    if (!this.audioContext || this.audioContext.state === "closed") {
+      this.startAudioCapture();
+    }
+
+    await this.resumeAudio();
+
+    if (this.audioContext?.state === "running") {
+      this.emit({ type: "audio_streaming" });
+      return true;
+    }
+
+    this.emit({ type: "audio_blocked" });
+    return false;
+  }
+
+  bindUnlockGestures(): void {
+    if (this.unlockBound || typeof document === "undefined") return;
+    this.unlockBound = true;
+
+    const tryUnlock = () => {
+      void this.unlockAudio();
+    };
+
+    document.addEventListener("pointerdown", tryUnlock, { passive: true });
+    document.addEventListener("keydown", tryUnlock, { passive: true });
+
+    if (typeof window !== "undefined") {
+      window.__axonUnlockVoiceAudio = () => this.unlockAudio();
+    }
+  }
+
   async start(): Promise<boolean> {
-    if (this.running) return true;
-
-    const wsUrl = await resolveVoiceWsUrl();
-    if (!wsUrl) {
-      return false;
+    if (this.running && this.isConnected()) return true;
+    if (this.connecting) {
+      await this.waitForBackendStatus(8000);
+      return this.isConnected();
     }
 
-    try {
-      this.mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-    } catch {
-      this.emit({ type: "error", message: "Microphone access denied." });
-      return false;
-    }
-
+    this.connecting = true;
+    const wasRunning = this.running;
     this.running = true;
-    await this.connectWs(wsUrl);
-    this.startAudioCapture();
-
     try {
-      const base = await resolveVoiceBackendBase();
-      if (base) {
-        await fetch(`${base}/api/v1/voice/start`, { method: "POST" });
+      const wsUrl = await resolveVoiceWsUrl();
+      if (!wsUrl) {
+        this.running = wasRunning;
+        return false;
       }
-    } catch {
-      /* pipeline may already be running via WS connect */
-    }
 
-    return this.ws?.readyState === WebSocket.OPEN;
+      const connected = await this.connectWs(wsUrl);
+      if (!connected) {
+        this.running = wasRunning;
+        this.emit({ type: "error", message: "Voice backend unavailable." });
+        return false;
+      }
+
+      await this.waitForBackendStatus(2500);
+
+      if (this.localMicActive) {
+        this.emit({ type: "audio_streaming" });
+      } else if (!this.mediaStream) {
+        try {
+          this.mediaStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              channelCount: 1,
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: true,
+            },
+          });
+        } catch {
+          this.running = wasRunning;
+          this.emit({ type: "error", message: "Microphone access denied." });
+          return false;
+        }
+        this.bindUnlockGestures();
+        if (!this.processor) {
+          this.startAudioCapture();
+        }
+        await this.unlockAudio();
+      }
+
+      try {
+        const base = await resolveVoiceBackendBase();
+        if (base) {
+          await fetch(`${base}/api/v1/voice/start`, { method: "POST" });
+        }
+      } catch {
+        /* pipeline may already be running via WS connect */
+      }
+
+      return this.ws?.readyState === WebSocket.OPEN;
+    } finally {
+      this.connecting = false;
+    }
+  }
+
+  private waitForBackendStatus(timeoutMs: number): Promise<void> {
+    if (this.localMicActive) return Promise.resolve();
+    return new Promise((resolve) => {
+      const deadline = Date.now() + timeoutMs;
+      const tick = () => {
+        if (this.localMicActive || Date.now() >= deadline) {
+          resolve();
+          return;
+        }
+        window.setTimeout(tick, 40);
+      };
+      tick();
+    });
   }
 
   stop(): void {
     this.running = false;
+    this.localMicActive = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -147,6 +242,7 @@ class NativeVoiceClient {
   }
 
   startSttCapture(): void {
+    void this.unlockAudio();
     this.sendControl("start_stt");
   }
 
@@ -159,12 +255,18 @@ class NativeVoiceClient {
   }
 
   async synthesize(text: string): Promise<ArrayBuffer | null> {
+    if (this.piperKnownUnavailable) return null;
+
     try {
       const res = await fetch(await resolveTtsUrl(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
       });
+      if (res.status === 503) {
+        this.piperKnownUnavailable = true;
+        return null;
+      }
       if (!res.ok) return null;
       return await res.arrayBuffer();
     } catch {
@@ -178,11 +280,31 @@ class NativeVoiceClient {
   }
 
   playText(text: string): Promise<void> {
-    this.ttsQueue = this.ttsQueue.then(async () => {
-      const wav = await this.synthesize(text);
-      if (wav) await this._playWavBuffer(wav);
-    });
+    this.ttsQueue = this.ttsQueue
+      .then(() => this._playText(text))
+      .catch(() => {
+        /* TTS is best-effort; captions still show the reply */
+      });
     return this.ttsQueue;
+  }
+
+  waitForPlayback(): Promise<void> {
+    return this.ttsQueue;
+  }
+
+  private async _playText(text: string): Promise<void> {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    if (!this.piperKnownUnavailable) {
+      const wav = await this.synthesize(trimmed);
+      if (wav && wav.byteLength > 0) {
+        await this._playWavBuffer(wav);
+        return;
+      }
+    }
+
+    await speakWithBrowser(trimmed);
   }
 
   stopPlayback(): void {
@@ -214,51 +336,102 @@ class NativeVoiceClient {
     });
   }
 
-  private async connectWs(url: string): Promise<void> {
-    if (!this.running) return;
+  private async connectWs(url: string, attempts = 20): Promise<boolean> {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (!this.running && !this.connecting) return false;
 
-    this.ws = new WebSocket(url);
-    this.ws.binaryType = "arraybuffer";
+      const connected = await this.tryConnectOnce(url);
+      if (connected) return true;
 
-    await new Promise<void>((resolve) => {
-      if (!this.ws) {
-        resolve();
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    return false;
+  }
+
+  private tryConnectOnce(url: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (!this.running && !this.connecting) {
+        resolve(false);
         return;
       }
 
-      this.ws.onopen = () => resolve();
+      const ws = new WebSocket(url);
+      ws.binaryType = "arraybuffer";
+      let settled = false;
 
-      this.ws.onmessage = (message) => {
-        if (message.data instanceof ArrayBuffer) {
-          void this.playWavBuffer(message.data);
-          return;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        if (!ok) {
+          try {
+            ws.close();
+          } catch {
+            /* noop */
+          }
         }
-        if (typeof message.data !== "string") return;
-        try {
-          const event = JSON.parse(message.data) as NativeVoiceEvent;
-          this.emit(event);
-        } catch {
-          /* ignore malformed */
-        }
+        resolve(ok);
       };
 
-      this.ws.onclose = () => {
-        if (!this.running) return;
-        this.reconnectTimer = setTimeout(() => {
-          void resolveVoiceWsUrl().then((nextUrl) => {
-            if (nextUrl) void this.connectWs(nextUrl);
-          });
-        }, 1200);
+      const timeout = window.setTimeout(() => finish(false), 5000);
+
+      ws.onopen = () => {
+        window.clearTimeout(timeout);
+        this.ws = ws;
+        this.attachWsHandlers(ws);
+        finish(true);
       };
 
-      this.ws.onerror = () => {
-        this.emit({ type: "error", message: "Voice pipeline connection failed." });
+      ws.onerror = () => {
+        window.clearTimeout(timeout);
+        finish(false);
+      };
+
+      ws.onclose = () => {
+        if (!settled) {
+          window.clearTimeout(timeout);
+          finish(false);
+        }
       };
     });
   }
 
+  private attachWsHandlers(ws: WebSocket): void {
+    ws.onmessage = (message) => {
+      if (message.data instanceof ArrayBuffer) {
+        void this.playWavBuffer(message.data);
+        return;
+      }
+      if (typeof message.data !== "string") return;
+      try {
+        const event = JSON.parse(message.data) as NativeVoiceEvent;
+        if (event.type === "status" && "localMicActive" in event && event.localMicActive) {
+          this.localMicActive = true;
+        }
+        if (event.type === "audio_streaming") {
+          this.localMicActive = true;
+        }
+        this.emit(event);
+      } catch {
+        /* ignore malformed */
+      }
+    };
+
+    ws.onclose = () => {
+      if (!this.running) return;
+      this.reconnectTimer = setTimeout(() => {
+        void this.start();
+      }, 1200);
+    };
+
+    ws.onerror = () => {
+      this.emit({ type: "error", message: "Voice pipeline connection failed." });
+    };
+  }
+
   private startAudioCapture(): void {
     if (!this.mediaStream) return;
+
+    this.teardownAudioGraph();
 
     const Ctx =
       window.AudioContext ??
@@ -268,45 +441,146 @@ class NativeVoiceClient {
     this.audioContext = new Ctx({ sampleRate: TARGET_SAMPLE_RATE });
     this.source = this.audioContext.createMediaStreamSource(this.mediaStream);
     this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+    this.muteGain = this.audioContext.createGain();
+    this.muteGain.gain.value = 0;
 
     this.processor.onaudioprocess = (event) => {
       if (this.ws?.readyState !== WebSocket.OPEN) return;
+      if (this.audioContext?.state !== "running") {
+        this.emit({ type: "audio_blocked" });
+        return;
+      }
+
       const input = event.inputBuffer.getChannelData(0);
-      const pcm = floatToPcm16(input, this.audioContext?.sampleRate ?? TARGET_SAMPLE_RATE);
+      const pcm = floatToPcm16(input, this.audioContext.sampleRate);
       if (pcm.byteLength > 0) {
         this.ws.send(pcm);
+        this.lastPcmSentAt = Date.now();
+        this.emit({ type: "audio_streaming" });
       }
     };
 
     this.source.connect(this.processor);
-    this.processor.connect(this.audioContext.destination);
+    this.processor.connect(this.muteGain);
+    this.muteGain.connect(this.audioContext.destination);
+  }
+
+  async resumeAudio(): Promise<void> {
+    if (this.audioContext?.state === "suspended") {
+      await this.audioContext.resume();
+    }
+  }
+
+  private teardownAudioGraph(): void {
+    this.processor?.disconnect();
+    this.source?.disconnect();
+    this.muteGain?.disconnect();
+    this.processor = null;
+    this.source = null;
+    this.muteGain = null;
+    void this.audioContext?.close();
+    this.audioContext = null;
   }
 
   private teardownAudio(): void {
-    this.processor?.disconnect();
-    this.source?.disconnect();
-    this.processor = null;
-    this.source = null;
+    this.teardownAudioGraph();
     this.mediaStream?.getTracks().forEach((t) => t.stop());
     this.mediaStream = null;
-    void this.audioContext?.close();
-    this.audioContext = null;
+    this.lastPcmSentAt = 0;
   }
 }
 
 function floatToPcm16(input: Float32Array, sampleRate: number): ArrayBuffer {
   const ratio = sampleRate / TARGET_SAMPLE_RATE;
-  const outLength = Math.floor(input.length / ratio);
+  const outLength = Math.max(1, Math.floor(input.length / ratio));
   const buffer = new ArrayBuffer(outLength * 2);
   const view = new DataView(buffer);
 
-  for (let i = 0; i < outLength; i++) {
-    const srcIndex = Math.floor(i * ratio);
+  for (let i = 0; i < outLength; i += 1) {
+    const srcIndex = Math.min(input.length - 1, Math.floor(i * ratio));
     const sample = Math.max(-1, Math.min(1, input[srcIndex] ?? 0));
     view.setInt16(i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
   }
 
   return buffer;
+}
+
+function speakWithBrowser(text: string): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      resolve();
+      return;
+    }
+
+    const trimmed = text.trim();
+    if (!trimmed) {
+      resolve();
+      return;
+    }
+
+    let finished = false;
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      resolve();
+    };
+
+    const speakNow = () => {
+      try {
+        window.speechSynthesis.cancel();
+        window.setTimeout(() => {
+          if (finished) return;
+
+          const utterance = new SpeechSynthesisUtterance(trimmed);
+          utterance.rate = 1;
+          utterance.pitch = 1;
+          utterance.volume = 1;
+
+          const voices = window.speechSynthesis.getVoices();
+          const preferred =
+            voices.find((v) => v.lang.startsWith("en") && v.localService) ??
+            voices.find((v) => v.lang.startsWith("en"));
+          if (preferred) utterance.voice = preferred;
+
+          utterance.onend = done;
+          utterance.onerror = done;
+
+          window.speechSynthesis.speak(utterance);
+
+          // Some Chromium builds never fire onend/onerror — don't hang forever.
+          window.setTimeout(done, Math.max(4000, trimmed.length * 80));
+        }, 64);
+      } catch {
+        done();
+      }
+    };
+
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      speakNow();
+      return;
+    }
+
+    let spoke = false;
+    const onVoices = () => {
+      if (spoke) return;
+      spoke = true;
+      window.speechSynthesis.removeEventListener("voiceschanged", onVoices);
+      speakNow();
+    };
+
+    window.speechSynthesis.addEventListener("voiceschanged", onVoices);
+    window.setTimeout(() => {
+      window.speechSynthesis.removeEventListener("voiceschanged", onVoices);
+      if (!spoke) speakNow();
+    }, 400);
+  });
+}
+
+declare global {
+  interface Window {
+    __axonUnlockVoiceAudio?: () => Promise<boolean>;
+  }
 }
 
 export const nativeVoiceClient = new NativeVoiceClient();

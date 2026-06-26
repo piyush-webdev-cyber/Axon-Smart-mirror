@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("axonShell", {
   isElectron: true,
+  getLanOrigin: () => ipcRenderer.invoke("axon-shell:get-lan-origin"),
   isKiosk: () => ipcRenderer.invoke("axon-shell:is-kiosk"),
   setKiosk: (enabled) => ipcRenderer.invoke("axon-shell:set-kiosk", enabled),
   getAutoLaunch: () => ipcRenderer.invoke("axon-shell:get-auto-launch"),

@@ -7,7 +7,8 @@ import { supabase } from "@/services/supabaseClient";
 import { websocketClient } from "@/services/websocketClient";
 import { useAppStore } from "@/store";
 import type { DeviceCode } from "@/types/device";
-import { acquireDeviceCode, clearActiveDeviceCode } from "@/features/device-linking/deviceCodeSession";
+import { acquireDeviceCode, clearActiveDeviceCode, refreshDeviceCode } from "@/features/device-linking/deviceCodeSession";
+import { DeviceApiError } from "@/services/deviceApi";
 import { isMirrorLinked, MIRROR_LINKED_EVENT } from "@/utils/authToken";
 import {
   applyMirrorLink,
@@ -132,6 +133,18 @@ export function useDeviceLinkSession() {
           clearInterval(intervalId);
         }
       } catch (err) {
+        if (err instanceof DeviceApiError && err.status === 404) {
+          console.warn("[axon] Device code missing on backend — refreshing QR");
+          try {
+            const fresh = await refreshDeviceCode();
+            setDeviceCode(fresh);
+            setError(null);
+          } catch (refreshErr) {
+            console.error("[axon] device code refresh failed:", refreshErr);
+            setError("Failed to refresh device code. Reload the mirror.");
+          }
+          return;
+        }
         console.error("[axon] device status poll failed:", err);
       }
     }

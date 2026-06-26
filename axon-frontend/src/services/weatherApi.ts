@@ -51,6 +51,20 @@ function normalizeSnapshot(raw: Record<string, unknown>): WeatherSnapshot {
         : null;
   if (observedAt) snapshot.observedAt = observedAt;
 
+  const forecastRaw = raw.forecast;
+  if (Array.isArray(forecastRaw)) {
+    snapshot.forecast = forecastRaw.map((row) => {
+      const item = row as Record<string, unknown>;
+      return {
+        day: String(item.day ?? ""),
+        high: Number(item.high ?? 0),
+        low: Number(item.low ?? 0),
+        condition: (item.condition as WeatherSnapshot["condition"]) ?? "unknown",
+        label: String(item.label ?? ""),
+      };
+    });
+  }
+
   return snapshot;
 }
 

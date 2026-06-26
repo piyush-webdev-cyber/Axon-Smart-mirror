@@ -94,6 +94,10 @@ export function DeviceLinkingScreen() {
         Scan with your phone or enter the code manually
       </p>
 
+      <p className="mt-3 max-w-sm break-all text-caption text-text-secondary">
+        Link URL: {linkUrl}
+      </p>
+
       {isLocalhostOrigin() && !env.publicMirrorUrl && (
         <p className="mt-3 max-w-xs text-caption text-warning">
           Set VITE_PUBLIC_MIRROR_URL so the QR opens on your phone.

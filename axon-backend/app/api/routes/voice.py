@@ -24,6 +24,7 @@ _bearer = HTTPBearer(auto_error=False)
 def _init_wakeword():
     return get_wakeword_service(
         settings.voice_wakeword_model_path or None,
+        threshold=settings.voice_wakeword_threshold,
         porcupine_access_key=settings.voice_porcupine_access_key or None,
         porcupine_keyword_path=settings.voice_porcupine_keyword_path or None,
         engine=settings.voice_wakeword_engine,
@@ -39,6 +40,18 @@ def _optional_user_id(
         return decode_supabase_jwt(credentials.credentials).id
     except Exception:
         return None
+
+
+@router.get("/ready")
+async def voice_ready() -> dict[str, object]:
+    """Fast readiness probe for Electron startup (no ML model loading)."""
+    pipeline = get_voice_pipeline()
+    return {
+        "ok": True,
+        "service": "axon-voice",
+        "pipelineRunning": pipeline.running,
+        "pipelineState": pipeline.state.value,
+    }
 
 
 @router.get("/status", response_model=VoiceStatusResponse)

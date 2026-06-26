@@ -7,6 +7,7 @@ openwakeword>=0.6.0
 onnxruntime>=1.17.0
 faster-whisper>=1.0.0
 pvporcupine>=3.0.0
+sounddevice>=0.4.6
 
 # Piper TTS is invoked as an external binary (see AXON_PIPER_BIN).
 # Download from: https://github.com/rhasspy/piper/releases

@@ -73,11 +73,12 @@ async def get_current_weather(
         else:
             client_ip = _client_ip(request)
             if not client_ip:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Could not resolve client IP. Enable device location or pass lat/lon.",
-                )
-            data = await fetch_weather_for_client_ip(client_ip)
+                from app.services.weather_service import fetch_coords_from_egress_ip
+
+                lat, lon = await fetch_coords_from_egress_ip()
+                data = await fetch_current_weather(lat, lon)
+            else:
+                data = await fetch_weather_for_client_ip(client_ip)
     except AxonError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 

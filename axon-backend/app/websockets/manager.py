@@ -43,19 +43,24 @@ class ConnectionManager:
         return len(self._connections)
 
     async def connect(self, websocket: WebSocket, user_id: str | None = None) -> None:
+        client = websocket.client
+        label = f"{client.host}:{client.port}" if client else "unknown"
+        logger.info("WS accept starting | client=%s | user_id=%s", label, user_id)
         await websocket.accept()
         self._connections.add(websocket)
         if user_id:
             self._by_user.setdefault(user_id, set()).add(websocket)
-        logger.info("WS connected (total=%d)", self.connection_count)
+        logger.info("WS connected | client=%s | user_id=%s | total=%d", label, user_id, self.connection_count)
 
     def disconnect(self, websocket: WebSocket, user_id: str | None = None) -> None:
+        client = websocket.client
+        label = f"{client.host}:{client.port}" if client else "unknown"
         self._connections.discard(websocket)
         if user_id and user_id in self._by_user:
             self._by_user[user_id].discard(websocket)
             if not self._by_user[user_id]:
                 del self._by_user[user_id]
-        logger.info("WS disconnected (total=%d)", self.connection_count)
+        logger.info("WS disconnected | client=%s | user_id=%s | total=%d", label, user_id, self.connection_count)
 
     async def send(
         self, websocket: WebSocket, event: str, payload: dict | None = None

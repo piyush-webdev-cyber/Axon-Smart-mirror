@@ -35,7 +35,10 @@ export function buildWakePrefixPattern(): RegExp {
 }
 
 export function stripWakeWordPrefix(transcript: string): string {
-  return transcript.replace(buildWakePrefixPattern(), "").trim();
+  return transcript
+    .replace(buildWakePrefixPattern(), "")
+    .replace(/^hey[\s,]+jarvis[\s,!.:.-]*/i, "")
+    .trim();
 }
 
 function escapeRegExp(value: string): string {

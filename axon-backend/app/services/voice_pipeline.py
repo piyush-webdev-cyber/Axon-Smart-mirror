@@ -9,18 +9,21 @@ from typing import Any
 
 import numpy as np
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.voice_config import WAKE_WORD
 from app.services.stt_service import SAMPLE_RATE, get_stt_service
 from app.services.tts_service import get_tts_service
 from app.services.voice_service import process_voice_command
-from app.services.wakeword_service import get_wakeword_service
+from app.services.wakeword_service import effective_listen_phrase, get_wakeword_service
 
 logger = get_logger(__name__)
 
 SILENCE_MS = 1200
 MAX_COMMAND_MS = 8000
 WAKE_ACK_PHRASE = "Yes?"
+_PCM_LOG_EVERY = 50
+_pcm_call_count = 0
 
 
 class PipelineState(str, Enum):
@@ -64,9 +67,10 @@ class VoicePipeline:
             get_wakeword_service().reset()
             self._reset_command()
             logger.info("[WAKEWORD] Listening...")
+            logger.info("[VOICE] Service Started")
             events = [
                 self._event("status", state=self._state.value),
-                self._event("listening_resumed", wakeWord=WAKE_WORD),
+                self._event("listening_resumed", wakeWord=WAKE_WORD, listenPhrase=self._listen_phrase()),
             ]
             await self._broadcast(events)
             return events[-1]
@@ -106,7 +110,7 @@ class VoicePipeline:
             logger.info("[WAKEWORD] Listening...")
             events = [
                 self._event("status", state=self._state.value),
-                self._event("listening_resumed", wakeWord=WAKE_WORD),
+                self._event("listening_resumed", wakeWord=WAKE_WORD, listenPhrase=self._listen_phrase()),
             ]
             await self._broadcast(events)
             return events
@@ -125,14 +129,22 @@ class VoicePipeline:
         return [self._event("error", message=f"Unknown control action: {action}")]
 
     async def handle_pcm(self, chunk: bytes) -> list[dict[str, object]]:
+        global _pcm_call_count
         if not self.running or not chunk:
+            if not self.running and chunk:
+                logger.warning("[PIPELINE] handle_pcm() ignored — pipeline stopped")
             return []
+
+        _pcm_call_count += 1
+        if _pcm_call_count == 1 or _pcm_call_count % _PCM_LOG_EVERY == 0:
+            logger.info("[PIPELINE] handle_pcm() called (call #%d)", _pcm_call_count)
+            logger.info("[PIPELINE] PCM Length: %d", len(chunk))
 
         events: list[dict[str, object]] = []
 
         if self._state == PipelineState.IDLE and self._wake_mode:
             if get_wakeword_service().process_pcm16(chunk):
-                logger.info("[WAKEWORD] Nexa detected")
+                logger.info("[WAKEWORD] Wake Word Detected")
                 self._state = PipelineState.RECORDING
                 self._reset_command()
                 self._command_buffer.extend(chunk)
@@ -200,9 +212,19 @@ class VoicePipeline:
             return events
 
         logger.info("[STT] Transcribing audio (%d bytes)", len(pcm))
-        text = await asyncio.to_thread(stt.transcribe_pcm16, pcm)
+        try:
+            text = await asyncio.to_thread(stt.transcribe_pcm16, pcm)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[STT] Transcription failed: %s", exc)
+            events.append(
+                self._event("error", message="Could not transcribe speech. Please try again."),
+            )
+            events.extend(await self._resume_listening())
+            await self._broadcast(events)
+            return events
+
         if text:
-            logger.info("[STT] Transcript received: %s", text)
+            logger.info("[STT] Transcript Received: %s", text)
             events.append(self._event("stt_final", text=text))
         events.append(self._event("stt_end"))
 
@@ -220,7 +242,9 @@ class VoicePipeline:
         events.append(self._event("processing_started", transcript=transcript))
 
         try:
+            logger.info("[AI] Gemini Request Sent")
             result = await process_voice_command(transcript)
+            logger.info("[AI] Gemini Response Received: %s", str(result.get("reply", ""))[:120])
         except Exception as exc:  # noqa: BLE001
             logger.exception("[AI] Response generation failed: %s", exc)
             events.append(self._event("error", message="Could not generate a response."))
@@ -241,10 +265,11 @@ class VoicePipeline:
         if reply:
             self._state = PipelineState.SPEAKING
             events.append(self._event("speaking_started", text=reply))
-            logger.info("[TTS] Speaking response")
+            logger.info("[TTS] Speaking")
             events.append(self._event("tts_text", text=reply))
 
         events.extend(await self._resume_listening())
+        logger.info("[VOICE] Listening Resumed")
         return events
 
     async def _speak_ack(self) -> list[dict[str, object]]:
@@ -265,7 +290,7 @@ class VoicePipeline:
         logger.info("[WAKEWORD] Listening...")
         return [
             self._event("listening_resumed", wakeWord=WAKE_WORD),
-            self._event("wake_armed", wakeWord=WAKE_WORD),
+            self._event("wake_armed", wakeWord=WAKE_WORD, listenPhrase=self._listen_phrase()),
             self._event("status", state=self._state.value),
         ]
 
@@ -276,6 +301,9 @@ class VoicePipeline:
         self._command_buffer = bytearray()
         self._command_started_at = None
         self._last_voice_at = None
+
+    def _listen_phrase(self) -> str:
+        return effective_listen_phrase(settings.voice_wakeword_model_path or None)
 
     def _event(self, event_type: str, **payload: object) -> dict[str, object]:
         return {"type": event_type, **payload}

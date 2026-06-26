@@ -30,6 +30,11 @@ export default function LinkPage() {
     if (rawCode && code && rawCode !== code) {
       navigate(`/link/${code}`, { replace: true });
     }
+    // OAuth redirect may leave a hash fragment — strip it so routing stays clean.
+    if (window.location.hash && window.location.hash.includes("access_token")) {
+      const clean = window.location.pathname + window.location.search;
+      window.history.replaceState(null, "", clean);
+    }
   }, [rawCode, code, navigate]);
 
   const linkDevice = useCallback(async () => {

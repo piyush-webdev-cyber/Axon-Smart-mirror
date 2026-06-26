@@ -20,6 +20,14 @@ export type WeatherCondition =
 
 export type TemperatureUnit = "celsius" | "fahrenheit";
 
+export interface ForecastDay {
+  day: string;
+  high: number;
+  low: number;
+  condition: WeatherCondition;
+  label: string;
+}
+
 export interface WeatherSnapshot {
   /** Whole-number temperature in the unit below. */
   temperature: number;
@@ -36,6 +44,7 @@ export interface WeatherSnapshot {
   low?: number;
   /** ISO timestamp of the reading. */
   observedAt?: string;
+  forecast?: ForecastDay[];
 }
 
 export type WeatherStatus = "idle" | "loading" | "ready" | "error";

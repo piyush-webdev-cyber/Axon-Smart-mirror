@@ -59,16 +59,35 @@ class WebSocketClient {
       return;
     }
 
+    const url = this.getUrl();
+    // eslint-disable-next-line no-console
+    console.info("[axon][websocket] connecting", { url });
+
+    if (!url.startsWith("ws://") && !url.startsWith("wss://")) {
+      // eslint-disable-next-line no-console
+      console.error("[axon][websocket] invalid URL (must be ws:// or wss://)", { url });
+      this.setStatus("closed");
+      return;
+    }
+
     this.setStatus(this.reconnectAttempts > 0 ? "reconnecting" : "connecting");
 
     try {
-      this.socket = new WebSocket(this.getUrl());
-    } catch {
+      this.socket = new WebSocket(url);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("[axon][websocket] constructor failed", {
+        url,
+        error,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       this.scheduleReconnect();
       return;
     }
 
     this.socket.onopen = () => {
+      // eslint-disable-next-line no-console
+      console.info("[axon][websocket] open", { url });
       this.reconnectAttempts = 0;
       this.setStatus("open");
       this.startHeartbeat();
@@ -76,7 +95,14 @@ class WebSocketClient {
 
     this.socket.onmessage = (event) => this.handleMessage(event);
 
-    this.socket.onclose = () => {
+    this.socket.onclose = (event) => {
+      // eslint-disable-next-line no-console
+      console.info("[axon][websocket] close", {
+        url,
+        code: event.code,
+        reason: event.reason,
+        wasClean: event.wasClean,
+      });
       this.stopHeartbeat();
       if (this.shouldReconnect) {
         this.scheduleReconnect();
@@ -85,7 +111,9 @@ class WebSocketClient {
       }
     };
 
-    this.socket.onerror = () => {
+    this.socket.onerror = (event) => {
+      // eslint-disable-next-line no-console
+      console.error("[axon][websocket] error", { url, event });
       // onclose will follow and drive reconnection
       this.socket?.close();
     };

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 from app.ai.gemini import gemini_client
@@ -12,9 +13,13 @@ from app.services.weather_service import fetch_current_weather
 logger = get_logger(__name__)
 
 
+_HEY_JARVIS_PREFIX = re.compile(r"^hey[\s,]+jarvis[\s,!.:.-]*", re.IGNORECASE)
+
+
 def normalize_transcript(transcript: str) -> str:
     text = transcript.strip()
     text = WAKE_WORD_PATTERN.sub("", text).strip()
+    text = _HEY_JARVIS_PREFIX.sub("", text).strip()
     return text
 
 
@@ -43,7 +48,19 @@ async def process_voice_command(
 
     # --- Fast local commands (no LLM latency) --------------------------------
 
-    if _contains_any(lowered, ("what time is it", "what's the time", "tell me the time")):
+    if _contains_any(lowered, ("what time is it", "what's the time", "tell me the time", "time is it")):
+        now = datetime.now()
+        spoken = now.strftime("%I:%M %p").lstrip("0")
+        return {
+            "reply": f"It's {spoken}.",
+            "action": None,
+            "source": "router",
+        }
+
+    if "time" in lowered and _contains_any(
+        lowered,
+        ("what", "tell", "current", "now"),
+    ):
         now = datetime.now()
         spoken = now.strftime("%I:%M %p").lstrip("0")
         return {

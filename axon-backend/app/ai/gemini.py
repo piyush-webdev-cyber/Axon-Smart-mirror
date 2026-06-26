@@ -17,10 +17,11 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-GEMINI_URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-1.5-flash:generateContent"
-)
+def _gemini_url(model: str) -> str:
+    return (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model}:generateContent"
+    )
 
 
 @dataclass
@@ -32,16 +33,18 @@ class GeminiResponse:
 class GeminiClient:
     def __init__(self) -> None:
         self._api_key = settings.gemini_api_key
+        self._default_model = settings.gemini_model or "gemini-2.0-flash"
         self.enabled = bool(self._api_key)
 
     async def generate(
         self,
         prompt: str,
         *,
-        model: str = "gemini-1.5-flash",
+        model: str | None = None,
         system: str | None = None,
         json_mode: bool = False,
     ) -> GeminiResponse:
+        model = model or self._default_model
         if not self.enabled:
             raise AxonError("Gemini API is not configured.", status_code=503)
 
@@ -59,7 +62,7 @@ class GeminiClient:
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
-                    GEMINI_URL,
+                    _gemini_url(model),
                     params={"key": self._api_key},
                     json=body,
                 )

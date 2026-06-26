@@ -60,8 +60,12 @@ def main() -> int:
             cwd=ROOT,
             check=False,
         )
+        from openwakeword.utils import download_models
+
+        print("[setup] Downloading OpenWakeWord assets (melspectrogram, hey_jarvis)...")
+        download_models(model_names=["hey_jarvis_v0.1"])
     except Exception as exc:  # noqa: BLE001
-        print(f"[setup] pip install warning: {exc}")
+        print(f"[setup] OpenWakeWord download warning: {exc}")
 
     print(
         "\n[setup] Add to axon-backend/.env:\n"

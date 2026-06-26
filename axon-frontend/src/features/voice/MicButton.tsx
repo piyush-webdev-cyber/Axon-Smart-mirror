@@ -2,7 +2,6 @@ import { Mic } from "lucide-react";
 import { cn } from "@/utils/cn";
 import {
   LISTENING_COMMAND_LABEL,
-  LISTENING_FOR_WAKE_LABEL,
   SAY_WAKE_WORD_LABEL,
   WAKE_DETECTED_LABEL,
 } from "@/constants/voiceConfig";
@@ -21,6 +20,7 @@ function getLabel(
   micReady: boolean,
   wakeActive: boolean,
   wakePulse: boolean,
+  listenPhrase: string,
 ): string {
   if (!micReady && state === "idle") {
     return "Allow microphone access";
@@ -29,7 +29,10 @@ function getLabel(
     return WAKE_DETECTED_LABEL;
   }
   if (wakeActive && state === "idle") {
-    return LISTENING_FOR_WAKE_LABEL;
+    return `Listening for ${listenPhrase}`;
+  }
+  if (state === "idle") {
+    return `Say ${listenPhrase}`;
   }
   return STATE_LABEL[state];
 }
@@ -52,8 +55,8 @@ const WAVE_BARS = [
  * only for 60 FPS on the Pi.
  */
 export function MicButton() {
-  const { state, micReady, wakeActive, wakePulse, transcript, reply, press } = useVoiceController();
-  const label = getLabel(state, micReady, wakeActive, wakePulse);
+  const { state, micReady, wakeActive, wakePulse, listenPhrase, press } = useVoiceController();
+  const label = getLabel(state, micReady, wakeActive, wakePulse, listenPhrase);
 
   const isIdle = state === "idle";
   const isListening = state === "listening";
@@ -212,15 +215,6 @@ export function MicButton() {
       >
         {label}
       </span>
-
-      {(transcript || reply) && (
-        <p
-          key={transcript || reply}
-          className="max-w-xs text-center text-caption text-content-muted animate-fade-in"
-        >
-          {state === "speaking" || state === "processing" ? reply || transcript : transcript}
-        </p>
-      )}
     </div>
   );
 }

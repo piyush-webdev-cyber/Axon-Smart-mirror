@@ -1,7 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "@/app/App";
+import { logAxonEnv } from "@/utils/env";
 import "@/styles/globals.css";
+
+logAxonEnv();
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {

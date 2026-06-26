@@ -13,6 +13,17 @@ from functools import lru_cache
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Always merged into AXON_CORS_ORIGINS so Railway/Vercel work without extra env vars.
+DEFAULT_CORS_ORIGINS: list[str] = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "https://axon-smart-mirror.vercel.app",
+]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -48,14 +59,16 @@ class Settings(BaseSettings):
         default="axon-media", alias="SUPABASE_STORAGE_BUCKET"
     )
 
-    # --- AI (reserved) -----------------------------------------------------
+    # --- AI ----------------------------------------------------------------
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
+    gemini_model: str = Field(default="gemini-2.0-flash", alias="GEMINI_MODEL")
 
     # --- Weather -----------------------------------------------------------
     openweather_api_key: str = Field(default="", alias="OPENWEATHER_API_KEY")
 
     # --- Native voice (Electron / Raspberry Pi) ----------------------------
     voice_wakeword_model_path: str = Field(default="", alias="AXON_WAKEWORD_MODEL_PATH")
+    voice_wakeword_threshold: float = Field(default=0.20, alias="AXON_WAKEWORD_THRESHOLD")
     voice_wakeword_engine: str = Field(default="auto", alias="AXON_WAKEWORD_ENGINE")
     voice_porcupine_access_key: str = Field(default="", alias="AXON_PORCUPINE_ACCESS_KEY")
     voice_porcupine_keyword_path: str = Field(default="", alias="AXON_PORCUPINE_KEYWORD_PATH")
@@ -64,6 +77,7 @@ class Settings(BaseSettings):
     voice_piper_bin: str = Field(default="", alias="AXON_PIPER_BIN")
     voice_piper_model: str = Field(default="", alias="AXON_PIPER_MODEL")
     voice_port: int = Field(default=8010, alias="AXON_VOICE_PORT")
+    voice_local_mic: bool = Field(default=True, alias="AXON_VOICE_LOCAL_MIC")
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -92,17 +106,24 @@ class Settings(BaseSettings):
         return self.env.lower() in {"production", "prod"}
 
     def get_cors_origins(self) -> list[str]:
-        """Always returns CORS origins as a list."""
+        """Always returns CORS origins as a list, merged with safe defaults."""
+        configured: list[str]
         if isinstance(self.cors_origins, list):
-            return self.cors_origins
-        # This should never happen after validation, but just in case
-        if isinstance(self.cors_origins, str):
-            return [
+            configured = list(self.cors_origins)
+        elif isinstance(self.cors_origins, str):
+            configured = [
                 item.strip()
                 for item in self.cors_origins.split(",")
                 if item.strip()
             ]
-        return ["http://localhost:5173"]
+        else:
+            configured = ["http://localhost:5173"]
+
+        merged = list(configured)
+        for origin in DEFAULT_CORS_ORIGINS:
+            if origin not in merged:
+                merged.append(origin)
+        return merged
 
 
 @lru_cache

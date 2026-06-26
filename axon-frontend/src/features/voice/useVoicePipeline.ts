@@ -72,6 +72,11 @@ export function useVoicePipeline(): void {
   const setMicReady = useAppStore((s) => s.setVoiceMicReady);
   const setWakeActive = useAppStore((s) => s.setVoiceWakeActive);
   const setWakePulse = useAppStore((s) => s.setVoiceWakeDetectedPulse);
+  const setListenPhrase = useAppStore((s) => s.setVoiceListenPhrase);
+  const setStatusLine = useAppStore((s) => s.setVoiceStatusLine);
+  const setBackendConnected = useAppStore((s) => s.setVoiceBackendConnected);
+  const setAudioStreaming = useAppStore((s) => s.setVoiceAudioStreaming);
+  const setNeedsAudioUnlock = useAppStore((s) => s.setVoiceNeedsAudioUnlock);
 
   const voiceStateRef = useRef<VoiceState>("idle");
   const coordsRef = useRef<{ lat: number; lon: number } | null>(null);
@@ -147,8 +152,12 @@ export function useVoicePipeline(): void {
       setTranscript("");
       processingRef.current = false;
       setWakeActive(true);
+      if (nativeModeRef.current) {
+        const phrase = useAppStore.getState().voiceListenPhrase;
+        setStatusLine(`Listening for “${phrase}”`);
+      }
     },
-    [dispatch, emit, navigate, setTranscript, setWakeActive],
+    [dispatch, emit, navigate, setTranscript, setWakeActive, setStatusLine],
   );
 
   const armWakeWord = useCallback(() => {
@@ -186,6 +195,12 @@ export function useVoicePipeline(): void {
   }, [emit, setMicReady, setTranscript, setWakeActive, setWakePulse]);
 
   const ensureMic = useCallback(async (): Promise<boolean> => {
+    if (nativeModeRef.current && nativeVoiceClient.isLocalMicActive()) {
+      micReadyRef.current = true;
+      setMicReady(true);
+      return true;
+    }
+
     if (nativeModeRef.current && micReadyRef.current) return true;
 
     if (micReadyRef.current || isMicGranted()) {
@@ -281,6 +296,7 @@ export function useVoicePipeline(): void {
         setWakeActive(false);
         setTranscript("");
         setReply("");
+        setStatusLine("Recording — speak your command now");
         dispatch("startListening");
         emit(WS_EVENTS.voiceListening, { fromWakeWord });
         return;
@@ -353,6 +369,10 @@ export function useVoicePipeline(): void {
   }, [armWakeWord, dispatch, setTranscript]);
 
   const manualWake = useCallback(() => {
+    if (nativeModeRef.current) {
+      void nativeVoiceClient.resumeAudio().then(() => beginListening(false));
+      return;
+    }
     void beginListening(false);
   }, [beginListening]);
 
@@ -376,16 +396,26 @@ export function useVoicePipeline(): void {
     nativeModeRef.current = true;
 
     const handleNativeEvent = (event: NativeVoiceEvent) => {
+      if ("listenPhrase" in event && typeof event.listenPhrase === "string") {
+        setListenPhrase(event.listenPhrase);
+      }
+
       switch (event.type) {
+        case "status":
         case "wake_armed":
           setWakeActive(true);
           setWakePulse(false);
+          setBackendConnected(true);
+          setStatusLine(
+            `Ready · say “${useAppStore.getState().voiceListenPhrase}” or tap the mic`,
+          );
           break;
         case "wakeword_detected":
         case "wake_detected":
           void primeAudioContext();
           playWakeActivationSound();
           setWakePulse(true);
+          setStatusLine("Wake word detected!");
           window.setTimeout(() => setWakePulse(false), 900);
           emit(WS_EVENTS.voiceWakeDetected, { wakeWord: WAKE_WORD });
           break;
@@ -393,41 +423,77 @@ export function useVoicePipeline(): void {
           skipListeningSoundRef.current = true;
           setWakeActive(false);
           setTranscript("");
+          setStatusLine("Recording — speak your command now");
           dispatch("startListening");
           emit(WS_EVENTS.voiceListening, { fromWakeWord: true });
           break;
         case "stt_final": {
-          const cleaned = cleanTranscript(event.text);
-          if (cleaned) setTranscript(cleaned);
+          const raw = typeof event.text === "string" ? event.text : "";
+          if (raw) setTranscript(raw);
           break;
         }
         case "processing_started":
           dispatch("stopListening");
+          if (typeof event.transcript === "string" && event.transcript.trim()) {
+            setTranscript(event.transcript);
+          }
+          setStatusLine("Processing what you said…");
           emit(WS_EVENTS.voiceProcessing, { transcript: event.transcript ?? "" });
           processingRef.current = true;
           break;
         case "response_ready": {
           setReply(event.reply);
+          setStatusLine("Speaking response…");
           pendingActionRef.current = (event.action as VoiceAction | null | undefined) ?? null;
           emit(WS_EVENTS.voiceResponse, { reply: event.reply, action: event.action });
           runImmediateAction(pendingActionRef.current);
           break;
         }
-        case "speaking_started":
+        case "speaking_started": {
+          const text = typeof event.text === "string" ? event.text : "";
           if (voiceStateRef.current === "processing") {
             dispatch("responseReady");
           }
-          emit(WS_EVENTS.voiceSpeaking, { reply: event.text });
+          emit(WS_EVENTS.voiceSpeaking, { reply: text });
+          if (text) {
+            void nativeVoiceClient.playText(text);
+          }
           break;
-        case "listening_resumed":
-          finishSpeaking(pendingActionRef.current);
-          pendingActionRef.current = null;
+        }
+        case "listening_resumed": {
+          const phrase =
+            "listenPhrase" in event && typeof event.listenPhrase === "string"
+              ? event.listenPhrase
+              : useAppStore.getState().voiceListenPhrase;
+          setListenPhrase(phrase);
+          setWakeActive(true);
+          setStatusLine(`Listening for “${phrase}”`);
+          void nativeVoiceClient.waitForPlayback().then(() => {
+            if (!processingRef.current) return;
+            finishSpeaking(pendingActionRef.current);
+            pendingActionRef.current = null;
+            setTranscript("");
+          });
           break;
+        }
         case "error":
           playErrorSound();
           dispatch("error");
-          setTranscript(event.message);
+          setBackendConnected(nativeVoiceClient.isConnected());
+          setStatusLine(typeof event.message === "string" ? event.message : "Voice error");
+          setTranscript(typeof event.message === "string" ? event.message : "Voice error");
           processingRef.current = false;
+          break;
+        case "audio_streaming":
+          setAudioStreaming(true);
+          setNeedsAudioUnlock(false);
+          break;
+        case "audio_blocked":
+          setAudioStreaming(false);
+          setNeedsAudioUnlock(true);
+          if (useAppStore.getState().voiceBackendConnected) {
+            setStatusLine("Click anywhere once to enable wake word listening");
+          }
           break;
         default:
           break;
@@ -436,18 +502,56 @@ export function useVoicePipeline(): void {
 
     const unsub = nativeVoiceClient.subscribe(handleNativeEvent);
 
-    void (async () => {
+    let retryTimer: ReturnType<typeof setInterval> | null = null;
+    let audioWatchTimer: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false;
+
+    async function connectNativeVoice(): Promise<void> {
+      if (cancelled) return;
+      setBackendConnected(false);
+      setStatusLine("Connecting to voice backend…");
       const ok = await nativeVoiceClient.start();
       if (ok) {
         micReadyRef.current = true;
         setMicReady(true);
         setWakeActive(true);
-      } else {
-        setTranscript("Voice backend unavailable. Start the local FastAPI voice service.");
+        setBackendConnected(true);
+        const phrase = useAppStore.getState().voiceListenPhrase;
+        setStatusLine(`Ready · say “${phrase}” or tap the mic`);
+        setTranscript("");
+        setReply("");
+        await primeAudioContext();
+        if (!nativeVoiceClient.isLocalMicActive()) {
+          await nativeVoiceClient.resumeAudio();
+        }
+        if (retryTimer) {
+          clearInterval(retryTimer);
+          retryTimer = null;
+        }
+        return;
       }
-    })();
+      setBackendConnected(false);
+      setStatusLine("Voice backend unavailable — retrying…");
+    }
+
+    void connectNativeVoice();
+    retryTimer = setInterval(() => {
+      if (!nativeVoiceClient.isConnected()) {
+        setBackendConnected(false);
+        void connectNativeVoice();
+      }
+    }, 3000);
+
+    audioWatchTimer = setInterval(() => {
+      const streaming = nativeVoiceClient.isAudioStreaming();
+      setAudioStreaming(streaming);
+      setNeedsAudioUnlock(!streaming && nativeVoiceClient.isConnected());
+    }, 1500);
 
     return () => {
+      cancelled = true;
+      if (retryTimer) clearInterval(retryTimer);
+      if (audioWatchTimer) clearInterval(audioWatchTimer);
       unsub();
       nativeVoiceClient.stop();
     };
@@ -461,6 +565,11 @@ export function useVoicePipeline(): void {
     setTranscript,
     setWakeActive,
     setWakePulse,
+    setListenPhrase,
+    setStatusLine,
+    setBackendConnected,
+    setAudioStreaming,
+    setNeedsAudioUnlock,
   ]);
 
   /** Browser boot — Web Speech wake word. */
@@ -468,16 +577,21 @@ export function useVoicePipeline(): void {
     if (isNativeVoiceEngine()) return;
 
     if (!isVoiceEngineAvailable()) {
-      setTranscript("Voice requires Chrome, Edge, or the Axon desktop app.");
+      setStatusLine("Voice requires Chrome, Edge, or the Axon desktop app.");
       return;
     }
+
+    setBackendConnected(true);
 
     let retryTimer: ReturnType<typeof setInterval> | null = null;
 
     async function boot(): Promise<void> {
       const granted = await ensureMic();
       if (granted) {
+        setStatusLine(`Listening for “${WAKE_WORD}” — or tap the mic`);
         armWakeWord();
+      } else {
+        setStatusLine("Allow microphone access when prompted");
       }
     }
 
@@ -499,5 +613,5 @@ export function useVoicePipeline(): void {
       document.removeEventListener("visibilitychange", onVisible);
       wakeWordService.stop();
     };
-  }, [armWakeWord, ensureMic, setTranscript]);
+  }, [armWakeWord, ensureMic, setStatusLine, setBackendConnected]);
 }

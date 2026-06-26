@@ -13,6 +13,7 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 OPENWEATHER_URL = "https://api.openweathermap.org/data/2.5/weather"
+OPENWEATHER_FORECAST_URL = "https://api.openweathermap.org/data/2.5/forecast"
 IP_API_URL = "http://ip-api.com/json"
 IPWHO_URL = "https://ipwho.is"
 
@@ -51,6 +52,78 @@ async def fetch_current_weather(lat: float, lon: float) -> dict:
     }
 
     return await _request_openweather(params)
+
+
+async def fetch_forecast(lat: float, lon: float) -> list[dict]:
+    """Next 3 calendar days (daily high/low) from OpenWeather 5-day forecast."""
+    if not settings.openweather_api_key:
+        return []
+
+    params = {
+        "lat": lat,
+        "lon": lon,
+        "appid": settings.openweather_api_key,
+        "units": "metric",
+    }
+    logger.info("[WEATHER] API Request forecast lat=%s lon=%s", lat, lon)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(OPENWEATHER_FORECAST_URL, params=params)
+    except httpx.HTTPError as exc:
+        logger.warning("[WEATHER] Error: forecast %s", exc)
+        raise AxonError("Unable to reach forecast service.", status_code=502) from exc
+
+    if response.status_code != 200:
+        logger.warning("[WEATHER] Error HTTP %s forecast", response.status_code)
+        return []
+
+    payload = response.json()
+    entries = payload.get("list") or []
+    by_day: dict[str, dict] = {}
+
+    for entry in entries:
+        dt_txt = str(entry.get("dt_txt", ""))
+        if len(dt_txt) < 10:
+            continue
+        day_key = dt_txt[:10]
+        main = entry.get("main") or {}
+        temp_max = float(main.get("temp_max", main.get("temp", 0)))
+        temp_min = float(main.get("temp_min", main.get("temp", 0)))
+        weather_entry = (entry.get("weather") or [{}])[0]
+        code = int(weather_entry.get("id", 0))
+        condition, default_label = _map_condition(code)
+        label = str(weather_entry.get("main") or default_label).replace("_", " ").title()
+
+        bucket = by_day.setdefault(
+            day_key,
+            {"high": temp_max, "low": temp_min, "condition": condition, "label": label},
+        )
+        bucket["high"] = max(bucket["high"], temp_max)
+        bucket["low"] = min(bucket["low"], temp_min)
+        if dt_txt.endswith("12:00:00"):
+            bucket["condition"] = condition
+            bucket["label"] = label
+
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    days: list[dict] = []
+    for day_key in sorted(by_day.keys()):
+        if day_key <= today:
+            continue
+        row = by_day[day_key]
+        days.append(
+            {
+                "day": day_key,
+                "high": round(row["high"]),
+                "low": round(row["low"]),
+                "condition": row["condition"],
+                "label": row["label"],
+            },
+        )
+        if len(days) >= 3:
+            break
+
+    logger.info("[WEATHER] API Response forecast_days=%d", len(days))
+    return days
 
 
 async def fetch_coords_from_client_ip(client_ip: str | None) -> tuple[float, float]:
@@ -94,9 +167,28 @@ async def fetch_coords_from_client_ip(client_ip: str | None) -> tuple[float, flo
     raise AxonError("Unable to detect location from IP.", status_code=502)
 
 
+async def fetch_coords_from_egress_ip() -> tuple[float, float]:
+    """Resolve lat/lon from this machine's public egress IP (for localhost clients)."""
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(f"{IP_API_URL}/", params={"fields": "status,lat,lon,message"})
+        if response.status_code == 200:
+            payload = response.json()
+            if payload.get("status") == "success":
+                logger.info("[WEATHER] Egress geolocation: lat=%s lon=%s", payload.get("lat"), payload.get("lon"))
+                return float(payload["lat"]), float(payload["lon"])
+            logger.warning("[WEATHER] Egress geolocation failed: %s", payload.get("message"))
+    except httpx.HTTPError as exc:
+        logger.warning("[WEATHER] Egress geolocation error: %s", exc)
+    raise AxonError("Unable to detect location.", status_code=502)
+
+
 async def fetch_weather_for_client_ip(client_ip: str | None) -> dict:
     """Weather for the requesting device based on its public IP."""
-    lat, lon = await fetch_coords_from_client_ip(client_ip)
+    if not client_ip or client_ip in {"127.0.0.1", "::1"}:
+        lat, lon = await fetch_coords_from_egress_ip()
+    else:
+        lat, lon = await fetch_coords_from_client_ip(client_ip)
     return await fetch_current_weather(lat, lon)
 
 
@@ -119,21 +211,40 @@ async def fetch_weather_by_city(city: str) -> dict:
 
 
 async def _request_openweather(params: dict) -> dict:
+    logger.info("[WEATHER] API Request params=%s", {k: v for k, v in params.items() if k != "appid"})
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(OPENWEATHER_URL, params=params)
     except httpx.HTTPError as exc:
-        logger.warning("OpenWeather request failed: %s", exc)
+        logger.warning("[WEATHER] Error: %s", exc)
         raise AxonError("Unable to reach weather service.", status_code=502) from exc
 
     if response.status_code == 401:
+        logger.warning("[WEATHER] Error: invalid API key")
         raise AxonError("Weather API key is invalid.", status_code=503)
     if response.status_code != 200:
-        logger.warning("OpenWeather error %s: %s", response.status_code, response.text)
+        logger.warning("[WEATHER] Error HTTP %s: %s", response.status_code, response.text[:200])
         raise AxonError("Weather data is unavailable.", status_code=502)
 
     payload = response.json()
-    return _normalize_openweather_payload(payload)
+    logger.info(
+        "[WEATHER] API Response location=%s temp=%s",
+        payload.get("name"),
+        (payload.get("main") or {}).get("temp"),
+    )
+    result = _normalize_openweather_payload(payload)
+    coord = payload.get("coord") or {}
+    lat = coord.get("lat")
+    lon = coord.get("lon")
+    if lat is not None and lon is not None:
+        try:
+            result["forecast"] = await fetch_forecast(float(lat), float(lon))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[WEATHER] Forecast unavailable: %s", exc)
+            result["forecast"] = []
+    else:
+        result["forecast"] = []
+    return result
 
 
 def _normalize_openweather_payload(payload: dict) -> dict:

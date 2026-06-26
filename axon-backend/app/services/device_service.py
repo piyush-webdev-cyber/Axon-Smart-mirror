@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import random
 import secrets
 import string
 import uuid
 from datetime import datetime, timedelta
+from typing import Literal
 
 from postgrest.exceptions import APIError
 from supabase import Client
@@ -17,6 +19,9 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+StorageBackend = Literal["db", "storage", "memory"]
+_STORAGE_PREFIX = "device-codes"
+
 
 class DeviceService:
     """Handles device code generation and linking."""
@@ -25,10 +30,8 @@ class DeviceService:
     CODE_PREFIX = "AXN-"
     CODE_EXPIRY_MINUTES = 15
 
-    # In-memory fallback for local dev when Supabase schema is not migrated yet.
     _dev_codes: dict[str, dict] = {}
-    _dev_mode: bool = False
-    # Process-local mirror tokens when DB row lacks mirror_token column
+    _storage_backend: StorageBackend = "db"
     _linked_meta: dict[str, dict] = {}
 
     def __init__(self, supabase_admin: Client):
@@ -36,22 +39,35 @@ class DeviceService:
         self.db = supabase_admin
 
     @classmethod
-    def _activate_dev_mode(cls, reason: str) -> bool:
+    def _activate_storage_backend(cls, reason: str) -> bool:
+        if cls._storage_backend != "db":
+            return cls._storage_backend == "storage"
+        logger.warning(
+            "%s Falling back to Supabase Storage for device codes (shared across backends). "
+            "Run SUPABASE_DEVICE_CODES_FIX.sql in Supabase SQL Editor for the proper table.",
+            reason,
+        )
+        cls._storage_backend = "storage"
+        return True
+
+    @classmethod
+    def _activate_memory_backend(cls, reason: str) -> bool:
         if settings.is_production:
             logger.error(
-                "%s Device linking requires Supabase (device_codes table) in production.",
+                "%s Device linking requires Supabase device_codes table in production.",
                 reason,
             )
             return False
         if not settings.debug:
             return False
-        if not cls._dev_mode:
-            logger.warning(
-                "%s Falling back to in-memory device codes (dev only). "
-                "Run SUPABASE_SETUP.sql for production.",
-                reason,
-            )
-            cls._dev_mode = True
+        if cls._storage_backend == "memory":
+            return True
+        logger.warning(
+            "%s Falling back to in-memory device codes (this process only). "
+            "Phone linking via Vercel will NOT work until SUPABASE_DEVICE_CODES_FIX.sql is applied.",
+            reason,
+        )
+        cls._storage_backend = "memory"
         return True
 
     @staticmethod
@@ -62,35 +78,78 @@ class DeviceService:
         message = str(getattr(exc, "message", exc))
         return "PGRST205" in message or "device_codes" in message
 
+    def _bucket(self):
+        return self.db.storage.from_(settings.supabase_storage_bucket)
+
+    def _storage_object_path(self, code: str) -> str:
+        return f"{_STORAGE_PREFIX}/{code.strip().upper()}.json"
+
+    def _storage_get(self, code: str) -> dict | None:
+        try:
+            raw = self._bucket().download(self._storage_object_path(code))
+            return json.loads(raw.decode("utf-8"))
+        except Exception:
+            return None
+
+    def _storage_put(self, record: dict) -> dict:
+        code = record["code"].strip().upper()
+        record = {**record, "code": code}
+        payload = json.dumps(record).encode("utf-8")
+        self._bucket().upload(
+            self._storage_object_path(code),
+            payload,
+            file_options={"content-type": "application/json", "upsert": "true"},
+        )
+        return record
+
+    def _memory_get(self, code: str) -> dict | None:
+        return self._dev_codes.get(code.strip().upper())
+
+    def _memory_put(self, record: dict) -> dict:
+        code = record["code"].strip().upper()
+        record = {**record, "code": code}
+        self._dev_codes[code] = record
+        return record
+
+    async def _get_record(self, code: str) -> dict | None:
+        code = code.strip().upper()
+        if self._storage_backend == "storage":
+            return self._storage_get(code)
+        if self._storage_backend == "memory":
+            return self._memory_get(code)
+        return None
+
     def _generate_code(self) -> str:
         """Generate a unique device code like AXN-4832."""
         for _ in range(10):
             digits = "".join(random.choices(string.digits, k=4))
             code = f"{self.CODE_PREFIX}{digits}"
-            if code not in self._dev_codes:
-                return code
+            if self._storage_backend == "memory" and code in self._dev_codes:
+                continue
+            if self._storage_backend == "storage" and self._storage_get(code):
+                continue
+            return code
         raise AxonError("Failed to generate unique device code", status_code=500)
 
     def _now_iso(self) -> str:
         return datetime.utcnow().isoformat() + "Z"
 
-    def _create_dev_record(self, code: str, expires_at: datetime) -> dict:
-        record = {
-            "id": str(uuid.uuid4()),
-            "code": code,
-            "status": "pending",
-            "user_id": None,
-            "expires_at": expires_at.isoformat() + "Z",
-            "created_at": self._now_iso(),
-            "updated_at": self._now_iso(),
-            "display_name": None,
-            "avatar_url": None,
-        }
-        self._dev_codes[code] = record
-        return record
+    def _persist_fallback_record(self, record: dict) -> dict:
+        if self._storage_backend == "storage":
+            return self._storage_put(record)
+        return self._memory_put(record)
 
-    def _get_dev_record(self, code: str) -> dict | None:
-        return self._dev_codes.get(code)
+    def _mark_expired_fallback(self, code: str) -> None:
+        if self._storage_backend == "storage":
+            record = self._storage_get(code)
+            if record:
+                record["status"] = "expired"
+                self._storage_put(record)
+        elif self._storage_backend == "memory":
+            record = self._memory_get(code)
+            if record:
+                record["status"] = "expired"
+                self._memory_put(record)
 
     def _parse_expires_at(self, value: str) -> datetime:
         normalized = value.replace("Z", "+00:00")
@@ -157,8 +216,11 @@ class DeviceService:
         token = secrets.token_urlsafe(32)
         self._linked_meta[code] = {**meta, "mirror_token": token}
 
-        if self._dev_mode and code in self._dev_codes:
-            self._dev_codes[code]["mirror_token"] = token
+        if self._storage_backend in ("storage", "memory") and code:
+            record = self._storage_get(code) if self._storage_backend == "storage" else self._memory_get(code)
+            if record:
+                record["mirror_token"] = token
+                self._persist_fallback_record(record)
             return token
 
         try:
@@ -174,11 +236,28 @@ class DeviceService:
         """Create a new device code for linking."""
         code = self._generate_code()
         expires_at = datetime.utcnow() + timedelta(minutes=self.CODE_EXPIRY_MINUTES)
+        record = {
+            "id": str(uuid.uuid4()),
+            "code": code,
+            "status": "pending",
+            "user_id": None,
+            "expires_at": expires_at.isoformat() + "Z",
+            "created_at": self._now_iso(),
+            "updated_at": self._now_iso(),
+            "display_name": None,
+            "avatar_url": None,
+            "mirror_token": None,
+        }
 
-        if self._dev_mode:
-            record = self._create_dev_record(code, expires_at)
+        if self._storage_backend == "storage":
+            saved = self._storage_put(record)
+            logger.info("Created storage device code: %s", code)
+            return saved
+
+        if self._storage_backend == "memory":
+            saved = self._memory_put(record)
             logger.info("Created dev device code: %s", code)
-            return record
+            return saved
 
         try:
             result = (
@@ -202,8 +281,13 @@ class DeviceService:
 
         except APIError as exc:
             logger.error("Failed to create device code: %s", exc)
-            if self._is_missing_table(exc) and self._activate_dev_mode("device_codes table missing."):
-                return self._create_dev_record(code, expires_at)
+            if self._is_missing_table(exc) and self._activate_storage_backend("device_codes table missing."):
+                try:
+                    return self._storage_put(record)
+                except Exception as storage_exc:  # noqa: BLE001
+                    logger.error("Storage device code create failed: %s", storage_exc)
+                    if self._activate_memory_backend("Storage unavailable."):
+                        return self._memory_put(record)
             raise AxonError("Failed to create device code", status_code=500) from exc
         except Exception as exc:
             logger.error("Failed to create device code: %s", exc)
@@ -212,8 +296,10 @@ class DeviceService:
     async def get_device_code(self, code: str) -> dict | None:
         """Fetch device code by code string."""
         code = code.strip().upper()
-        if self._dev_mode:
-            return self._get_dev_record(code)
+        if self._storage_backend == "storage":
+            return self._storage_get(code)
+        if self._storage_backend == "memory":
+            return self._memory_get(code)
 
         try:
             result = (
@@ -226,8 +312,12 @@ class DeviceService:
             return result.data
 
         except APIError as exc:
-            if self._is_missing_table(exc) and self._activate_dev_mode("device_codes table missing."):
-                return self._get_dev_record(code)
+            if self._is_missing_table(exc) and self._activate_storage_backend("device_codes table missing."):
+                stored = self._storage_get(code)
+                if stored:
+                    return stored
+                if self._activate_memory_backend("Storage read after table missing."):
+                    return self._memory_get(code)
             logger.error("Failed to fetch device code %s: %s", code, exc)
             return None
         except Exception as exc:
@@ -244,10 +334,13 @@ class DeviceService:
 
         expires_at = self._parse_expires_at(device_code["expires_at"])
         if datetime.utcnow() > expires_at:
-            if self._dev_mode and code in self._dev_codes:
-                self._dev_codes[code]["status"] = "expired"
+            if self._storage_backend == "db":
+                try:
+                    self.db.table("device_codes").update({"status": "expired"}).eq("code", code).execute()
+                except APIError:
+                    self._mark_expired_fallback(code)
             else:
-                self.db.table("device_codes").update({"status": "expired"}).eq("code", code).execute()
+                self._mark_expired_fallback(code)
             raise AxonError("Device code has expired", status_code=400)
 
         if device_code["status"] == "linked":
@@ -255,25 +348,23 @@ class DeviceService:
 
         display_name, avatar_url = self._fetch_user_display(user_id)
         email = self._fetch_user_email(user_id)
-
-        if self._dev_mode:
-            record = self._dev_codes[code]
-            mirror_token = secrets.token_urlsafe(32)
-            record.update(
-                {
-                    "user_id": user_id,
-                    "status": "linked",
-                    "display_name": display_name,
-                    "avatar_url": avatar_url,
-                    "email": email,
-                    "mirror_token": mirror_token,
-                    "updated_at": self._now_iso(),
-                }
-            )
-            logger.info("Linked dev device %s to user %s", code, user_id)
-            return record
-
         mirror_token = secrets.token_urlsafe(32)
+
+        if self._storage_backend in ("storage", "memory"):
+            record = {
+                **device_code,
+                "user_id": user_id,
+                "status": "linked",
+                "display_name": display_name,
+                "avatar_url": avatar_url,
+                "email": email,
+                "mirror_token": mirror_token,
+                "updated_at": self._now_iso(),
+            }
+            linked = self._persist_fallback_record(record)
+            logger.info("Linked fallback device %s to user %s", code, user_id)
+            return linked
+
         try:
             update_payload: dict = {
                 "user_id": user_id,
@@ -302,9 +393,7 @@ class DeviceService:
             return linked
 
         except APIError as exc:
-            if self._is_missing_table(exc) and self._activate_dev_mode(
-                "device_codes table missing."
-            ):
+            if self._is_missing_table(exc) and self._activate_storage_backend("device_codes table missing."):
                 return await self.link_device(code, user_id)
             # mirror_token column may be missing before migration 0005
             if "mirror_token" in str(exc).lower() or getattr(exc, "code", None) == "PGRST204":
@@ -342,10 +431,13 @@ class DeviceService:
 
         expires_at = self._parse_expires_at(device_code["expires_at"])
         if datetime.utcnow() > expires_at and device_code["status"] == "pending":
-            if self._dev_mode and code in self._dev_codes:
-                self._dev_codes[code]["status"] = "expired"
+            if self._storage_backend == "db":
+                try:
+                    self.db.table("device_codes").update({"status": "expired"}).eq("code", code).execute()
+                except APIError:
+                    self._mark_expired_fallback(code)
             else:
-                self.db.table("device_codes").update({"status": "expired"}).eq("code", code).execute()
+                self._mark_expired_fallback(code)
             return {
                 "status": "expired",
                 "user_id": None,
@@ -380,9 +472,8 @@ class DeviceService:
                 response["avatar_url"] = response["avatar_url"] or avatar_url
                 if not response["email"]:
                     response["email"] = email
-                if self._dev_mode and code in self._dev_codes:
-                    self._dev_codes[code]["display_name"] = response["display_name"]
-                    self._dev_codes[code]["avatar_url"] = response["avatar_url"]
-                    self._dev_codes[code]["email"] = response["email"]
+                if self._storage_backend in ("storage", "memory"):
+                    record = {**device_code, **response, "updated_at": self._now_iso()}
+                    self._persist_fallback_record(record)
 
         return response

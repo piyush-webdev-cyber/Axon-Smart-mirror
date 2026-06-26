@@ -13,6 +13,7 @@ from enum import StrEnum
 class WsEvent(StrEnum):
     # Active in Phase 1
     SYSTEM_CONNECTED = "system.connected"
+    SYSTEM_ERROR = "system.error"
     PING = "system.ping"
     PONG = "system.pong"
     DEVICE_STATUS = "device.status"

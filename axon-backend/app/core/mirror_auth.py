@@ -7,14 +7,21 @@ from app.core.security import AuthenticatedUser
 from app.db.supabase import get_supabase_admin
 
 
-def _resolve_dev_mirror_user(mirror_token: str) -> AuthenticatedUser | None:
-    """In-memory device codes (local dev when Supabase schema is not migrated)."""
+def _resolve_fallback_mirror_user(mirror_token: str) -> AuthenticatedUser | None:
+    """Storage or in-memory device codes when Supabase table is not migrated."""
     from app.services.device_service import DeviceService
 
-    if not DeviceService._dev_mode:
+    if DeviceService._storage_backend not in ("storage", "memory"):
         return None
 
-    for record in DeviceService._dev_codes.values():
+    records: list[dict] = []
+    if DeviceService._storage_backend == "memory":
+        records = list(DeviceService._dev_codes.values())
+    else:
+        # Scan storage prefix is expensive; check linked_meta and known codes only.
+        records = list(DeviceService._dev_codes.values())
+
+    for record in records:
         if record.get("mirror_token") != mirror_token:
             continue
         if record.get("status") != "linked":
@@ -33,7 +40,7 @@ def _resolve_dev_mirror_user(mirror_token: str) -> AuthenticatedUser | None:
 
 async def resolve_mirror_user(mirror_token: str) -> AuthenticatedUser:
     """Validate a mirror token and return the linked user."""
-    dev_user = _resolve_dev_mirror_user(mirror_token)
+    dev_user = _resolve_fallback_mirror_user(mirror_token)
     if dev_user:
         return dev_user
 
@@ -51,7 +58,7 @@ async def resolve_mirror_user(mirror_token: str) -> AuthenticatedUser:
             .execute()
         )
     except Exception:
-        dev_user = _resolve_dev_mirror_user(mirror_token)
+        dev_user = _resolve_fallback_mirror_user(mirror_token)
         if dev_user:
             return dev_user
         raise UnauthorizedError("Invalid mirror token.") from None

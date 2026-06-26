@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import tempfile
 import wave
 from dataclasses import dataclass
 from typing import Any
@@ -68,18 +67,21 @@ class SttService:
         if samples.size == 0:
             return ""
 
-        wav_bytes = _pcm16_to_wav(samples)
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
-            tmp.write(wav_bytes)
-            tmp.flush()
+        # Pass float32 audio directly — avoids Windows temp-file lock (Errno 13).
+        audio = samples.astype(np.float32) / 32768.0
+        try:
             segments, _info = self._model.transcribe(
-                tmp.name,
+                audio,
                 language="en",
                 vad_filter=True,
                 beam_size=1,
             )
             text = " ".join(segment.text.strip() for segment in segments).strip()
+            logger.info("[STT] Transcript Received: %s", text or "(empty)")
             return text
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[STT] Transcription failed: %s", exc)
+            raise
 
     def _init_model(self) -> None:
         if WhisperModel is None:

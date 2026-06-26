@@ -1,6 +1,6 @@
 /** Single active device-code session — survives React Strict Mode double-mount. */
 
-import { deviceApi } from "@/services/deviceApi";
+import { deviceApi, DeviceApiError } from "@/services/deviceApi";
 import type { DeviceCode, DeviceStatus } from "@/types/device";
 import { isMirrorLinked } from "@/utils/authToken";
 import { ACTIVE_DEVICE_CODE_KEY } from "@/utils/mirrorLink";
@@ -19,6 +19,21 @@ function pendingCodeRecord(code: string): DeviceCode {
     expires_at: "",
     created_at: "",
   };
+}
+
+async function createAndPersistCode(): Promise<DeviceCode> {
+  if (!inflightCreate) {
+    inflightCreate = deviceApi
+      .createDeviceCode()
+      .then((created) => {
+        sessionStorage.setItem(ACTIVE_DEVICE_CODE_KEY, normalizeCode(created.code));
+        return created;
+      })
+      .finally(() => {
+        inflightCreate = null;
+      });
+  }
+  return inflightCreate;
 }
 
 /** Reuse sessionStorage code or share one in-flight create across mounts. */
@@ -42,25 +57,25 @@ export async function acquireDeviceCode(): Promise<{
         return { code: pendingCodeRecord(normalized) };
       }
       sessionStorage.removeItem(ACTIVE_DEVICE_CODE_KEY);
-    } catch {
-      return { code: pendingCodeRecord(normalized) };
+    } catch (err) {
+      // Stale code (backend restart, expiry, or wrong API) — discard and mint fresh.
+      sessionStorage.removeItem(ACTIVE_DEVICE_CODE_KEY);
+      if (!(err instanceof DeviceApiError) || err.status === 404) {
+        console.warn("[axon] Discarding stale device code, creating new one");
+      }
     }
   }
 
-  if (!inflightCreate) {
-    inflightCreate = deviceApi
-      .createDeviceCode()
-      .then((created) => {
-        sessionStorage.setItem(ACTIVE_DEVICE_CODE_KEY, normalizeCode(created.code));
-        return created;
-      })
-      .finally(() => {
-        inflightCreate = null;
-      });
-  }
-
-  const created = await inflightCreate;
+  const created = await createAndPersistCode();
   return { code: created };
+}
+
+/** Replace the active code when polling discovers the backend no longer knows it. */
+export async function refreshDeviceCode(): Promise<DeviceCode> {
+  sessionStorage.removeItem(ACTIVE_DEVICE_CODE_KEY);
+  inflightCreate = null;
+  const created = await createAndPersistCode();
+  return created;
 }
 
 export function clearActiveDeviceCode(): void {
