@@ -11,6 +11,7 @@ interface ImportMetaEnv {
   readonly VITE_WEATHER_LON?: string;
   readonly VITE_VOICE_ENGINE?: string;
   readonly VITE_USE_REMOTE_BACKEND?: string;
+  readonly VITE_DEVICE_LINK_LOCAL?: string;
 }
 
 interface ImportMeta {

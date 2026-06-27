@@ -9,9 +9,7 @@ import type {
 } from "@/types/photo";
 import { normalizePhoto, normalizePhotoList } from "@/types/photo";
 import { getAuthHeaders } from "@/utils/authToken";
-import { env } from "@/utils/env";
-
-const API_BASE = env.apiBaseUrl;
+import { restApiBase } from "@/utils/restApiBase";
 
 function parseApiError(body: unknown, fallback: string): string {
   if (typeof body === "object" && body !== null) {
@@ -40,7 +38,8 @@ export const photoApi = {
     if (caption) formData.append("caption", caption);
 
     const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE}/photos`, {
+    const apiBase = restApiBase();
+    const response = await fetch(`${apiBase}/photos`, {
       method: "POST",
       headers,
       body: formData,
@@ -57,21 +56,21 @@ export const photoApi = {
     });
 
     const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE}/photos?${params}`, { headers });
+    const response = await fetch(`${restApiBase()}/photos?${params}`, { headers });
     const raw = await parseJson<Record<string, unknown>>(response, "Failed to list photos");
     return normalizePhotoList(raw);
   },
 
   async getPhoto(photoId: string): Promise<Photo> {
     const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE}/photos/${photoId}`, { headers });
+    const response = await fetch(`${restApiBase()}/photos/${photoId}`, { headers });
     const raw = await parseJson<Record<string, unknown>>(response, "Failed to get photo");
     return normalizePhoto(raw);
   },
 
   async deletePhoto(photoId: string): Promise<Photo> {
     const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE}/photos/${photoId}`, {
+    const response = await fetch(`${restApiBase()}/photos/${photoId}`, {
       method: "DELETE",
       headers,
     });
@@ -81,7 +80,7 @@ export const photoApi = {
 
   async createShareUrl(photoId: string): Promise<PhotoShareResponse> {
     const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE}/photos/${photoId}/share`, {
+    const response = await fetch(`${restApiBase()}/photos/${photoId}/share`, {
       method: "POST",
       headers,
     });
@@ -92,7 +91,7 @@ export const photoApi = {
 export const galleryApi = {
   async createSession(): Promise<GallerySessionResponse> {
     const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE}/gallery/sessions`, {
+    const response = await fetch(`${restApiBase()}/gallery/sessions`, {
       method: "POST",
       headers: {
         ...headers,
@@ -112,7 +111,7 @@ export const galleryApi = {
       page_size: pageSize.toString(),
     });
     const response = await fetch(
-      `${API_BASE}/gallery/sessions/${token}/photos?${params}`,
+      `${restApiBase()}/gallery/sessions/${token}/photos?${params}`,
     );
     const raw = await parseJson<Record<string, unknown>>(response, "Failed to load session photos");
     return {

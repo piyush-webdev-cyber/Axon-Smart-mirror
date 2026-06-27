@@ -2,7 +2,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "@/app/App";
 import { logAxonEnv } from "@/utils/env";
-import { deviceApiBase, deviceWsUrl, usesSharedRailwayBackend } from "@/utils/deviceApiBase";
+import { deviceApiBase, deviceWsUrl } from "@/utils/deviceApiBase";
+import { usesHostedDeviceLink } from "@/utils/deviceLinkConfig";
 import { getPublicMirrorOrigin } from "@/utils/publicMirrorUrl";
 import "@/styles/globals.css";
 
@@ -12,7 +13,7 @@ if (typeof window !== "undefined") {
   console.info("[axon] Device link transport", {
     deviceApiBase: deviceApiBase(),
     deviceWsUrl: deviceWsUrl(),
-    sharedRailway: usesSharedRailwayBackend(),
+    hostedDeviceLink: usesHostedDeviceLink(),
     linkOrigin: getPublicMirrorOrigin(),
   });
 }

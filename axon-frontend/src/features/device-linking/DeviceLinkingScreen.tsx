@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { env } from "@/utils/env";
-import { buildDeviceLinkUrl, isLocalhostOrigin } from "@/utils/publicMirrorUrl";
+import { buildDeviceLinkUrl } from "@/utils/publicMirrorUrl";
+import { usesLocalDeviceLink } from "@/utils/deviceLinkConfig";
 import { useDeviceLinkSession } from "./useDeviceLinkSession";
 
 function useQrSize() {
@@ -98,9 +98,9 @@ export function DeviceLinkingScreen() {
         Link URL: {linkUrl}
       </p>
 
-      {isLocalhostOrigin() && !env.publicMirrorUrl && (
+      {usesLocalDeviceLink() && (
         <p className="mt-3 max-w-xs text-caption text-warning">
-          Set VITE_PUBLIC_MIRROR_URL so the QR opens on your phone.
+          LAN dev mode — phone must be on the same Wi-Fi.
         </p>
       )}
     </div>

@@ -21,6 +21,7 @@ logger = get_logger(__name__)
 
 StorageBackend = Literal["db", "storage", "memory"]
 _STORAGE_PREFIX = "device-codes"
+_MIRROR_TOKEN_PREFIX = "mirror-tokens"
 
 
 class DeviceService:
@@ -118,6 +119,37 @@ class DeviceService:
             record.get("expires_at"),
         )
         return record
+
+    def _persist_mirror_token_index(
+        self, mirror_token: str, user_id: str, code: str
+    ) -> None:
+        """Cross-instance mirror auth index (survives missing mirror_token DB column)."""
+        payload = json.dumps(
+            {
+                "mirror_token": mirror_token,
+                "user_id": user_id,
+                "code": code.strip().upper(),
+            }
+        ).encode("utf-8")
+        path = f"{_MIRROR_TOKEN_PREFIX}/{mirror_token}.json"
+        try:
+            self._bucket().upload(
+                path,
+                payload,
+                file_options={"content-type": "application/json", "upsert": "true"},
+            )
+            logger.info(
+                "[DEVICE] saved mirror token index | code=%s | user_id=%s | path=%s",
+                code,
+                user_id,
+                path,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[DEVICE] mirror token index save failed | code=%s | error=%s",
+                code,
+                exc,
+            )
 
     def _memory_get(self, code: str) -> dict | None:
         return self._dev_codes.get(code.strip().upper())
@@ -231,13 +263,16 @@ class DeviceService:
             return token
 
         token = secrets.token_urlsafe(32)
-        self._linked_meta[code] = {**meta, "mirror_token": token}
+        user_id = device_code.get("user_id") if device_code else meta.get("user_id")
+        self._linked_meta[code] = {**meta, "mirror_token": token, "user_id": user_id}
 
         if self._storage_backend in ("storage", "memory") and code:
             record = self._storage_get(code) if self._storage_backend == "storage" else self._memory_get(code)
             if record:
                 record["mirror_token"] = token
                 self._persist_fallback_record(record)
+            if user_id:
+                self._persist_mirror_token_index(token, str(user_id), code)
             return token
 
         try:
@@ -246,6 +281,9 @@ class DeviceService:
             logger.warning("Could not persist mirror_token for %s: %s", code, exc)
         except Exception as exc:  # noqa: BLE001
             logger.warning("mirror_token persist failed for %s: %s", code, exc)
+
+        if user_id:
+            self._persist_mirror_token_index(token, str(user_id), code)
 
         return token
 
@@ -429,6 +467,7 @@ class DeviceService:
                 "updated_at": self._now_iso(),
             }
             linked = self._persist_fallback_record(record)
+            self._persist_mirror_token_index(mirror_token, user_id, code)
             logger.info("[DEVICE] link success (storage) | code=%s | user_id=%s", code, user_id)
             return linked
 
@@ -458,10 +497,12 @@ class DeviceService:
             linked["mirror_token"] = mirror_token
             self._linked_meta[code] = {
                 "mirror_token": mirror_token,
+                "user_id": user_id,
                 "display_name": display_name,
                 "avatar_url": avatar_url,
                 "email": email,
             }
+            self._persist_mirror_token_index(mirror_token, user_id, code)
             return linked
 
         except APIError as exc:
@@ -482,10 +523,12 @@ class DeviceService:
                 record["mirror_token"] = mirror_token
                 self._linked_meta[code] = {
                     "mirror_token": mirror_token,
+                    "user_id": user_id,
                     "display_name": display_name,
                     "avatar_url": avatar_url,
                     "email": email,
                 }
+                self._persist_mirror_token_index(mirror_token, user_id, code)
                 return record
             logger.error("Failed to link device %s: %s", code, exc)
             raise AxonError("Failed to link device", status_code=500) from exc

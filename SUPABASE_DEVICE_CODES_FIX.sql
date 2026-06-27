@@ -25,6 +25,10 @@ create table if not exists public.device_codes (
   updated_at   timestamptz not null default now()
 );
 
+-- If device_codes existed before Phase 5, ensure mirror_token column is present
+alter table public.device_codes
+  add column if not exists mirror_token text;
+
 create index if not exists idx_device_codes_user_id
   on public.device_codes (user_id);
 

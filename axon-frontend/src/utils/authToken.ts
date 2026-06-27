@@ -38,14 +38,14 @@ export function isMirrorLinked(): boolean {
 }
 
 export async function getAuthHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  if (data.session?.access_token) {
-    return { Authorization: `Bearer ${data.session.access_token}` };
-  }
-
   const mirrorToken = getMirrorToken();
   if (mirrorToken) {
     return { "X-Mirror-Token": mirrorToken };
+  }
+
+  const { data } = await supabase.auth.getSession();
+  if (data.session?.access_token) {
+    return { Authorization: `Bearer ${data.session.access_token}` };
   }
 
   throw new Error("Not authenticated");

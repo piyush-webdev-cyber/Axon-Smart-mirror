@@ -1,5 +1,9 @@
-/** Phone-reachable mirror origin for QR codes and OAuth (not localhost on the mirror PC). */
+/** Phone-reachable mirror origin for QR codes and OAuth. */
 
+import {
+  getHostedMirrorOrigin,
+  usesHostedDeviceLink,
+} from "@/utils/deviceLinkConfig";
 import { env } from "@/utils/env";
 
 export function isLocalhostOrigin(): boolean {
@@ -9,30 +13,24 @@ export function isLocalhostOrigin(): boolean {
 }
 
 /**
- * Origin embedded in QR codes from the mirror display.
- * Prefers VITE_PUBLIC_MIRROR_URL so phones are not sent to localhost.
+ * Origin embedded in QR codes — always the live Vercel LinkPage unless LAN dev mode.
  */
 export function getPublicMirrorOrigin(): string {
+  if (usesHostedDeviceLink()) {
+    return getHostedMirrorOrigin();
+  }
+
   if (import.meta.env.DEV && typeof window !== "undefined") {
-    const lan = (window as Window & { __AXON_LAN_ORIGIN__?: string }).__AXON_LAN_ORIGIN__;
-    if (lan) return lan.replace(/\/$/, "");
+    const lan = (window as Window & { __AXON_LAN_ORIGIN__?: string })
+      .__AXON_LAN_ORIGIN__;
+    if (lan) {
+      return lan.replace(/\/$/, "");
+    }
   }
 
   const configured = env.publicMirrorUrl?.replace(/\/$/, "");
   if (configured) {
-    const prodHosted = /vercel\.app|railway\.app/i.test(configured);
-    if (!(import.meta.env.DEV && prodHosted)) {
-      return configured;
-    }
-    // eslint-disable-next-line no-console
-    console.warn(
-      "[axon] Ignoring production VITE_PUBLIC_MIRROR_URL in local dev — using LAN origin",
-    );
-  }
-
-  // Production Electron kiosk — phones open the hosted link page.
-  if (typeof window !== "undefined" && window.axonShell?.isElectron && import.meta.env.PROD) {
-    return "https://axon-smart-mirror.vercel.app";
+    return configured;
   }
 
   if (typeof window !== "undefined" && !isLocalhostOrigin()) {
