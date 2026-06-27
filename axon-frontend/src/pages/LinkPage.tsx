@@ -5,7 +5,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { BrandedLoader } from "@/components/common/BrandedLoader";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthProvider";
-import { deviceApi } from "@/services/deviceApi";
+import { deviceApi, DeviceApiError } from "@/services/deviceApi";
 import { supabase } from "@/services/supabaseClient";
 
 type LinkPhase = "boot" | "sign_in" | "linking" | "success" | "error";
@@ -52,9 +52,18 @@ export default function LinkPage() {
         throw new Error("Your sign-in session expired. Please sign in again.");
       }
 
-      await deviceApi.linkDevice(code, freshSession.access_token);
+      try {
+        await deviceApi.linkDevice(code, freshSession.access_token);
+      } catch (linkErr) {
+        const alreadyLinked =
+          linkErr instanceof DeviceApiError &&
+          linkErr.status === 400 &&
+          linkErr.message.toLowerCase().includes("already linked");
+        if (!alreadyLinked) {
+          throw linkErr;
+        }
+      }
 
-      // Fetch full link payload (mirror_token) for cross-replica sync fallback
       const status = await deviceApi.checkDeviceStatus(code);
       if (status.mirror_token && status.user_id) {
         sessionStorage.setItem(

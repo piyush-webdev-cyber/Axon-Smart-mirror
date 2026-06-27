@@ -156,6 +156,7 @@ async function startVoiceServer(port = 8010) {
   const env = {
     ...process.env,
     AXON_VOICE_PORT: String(port),
+    AXON_VOICE_LOCAL_MIC: "true",
   };
 
   voiceProcessOwned = true;

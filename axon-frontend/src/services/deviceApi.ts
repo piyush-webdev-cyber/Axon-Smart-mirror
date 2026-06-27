@@ -1,18 +1,7 @@
 /** Device linking API client. */
 
 import type { DeviceCode, DeviceLinkResponse, DeviceStatus } from "../types/device";
-import { env } from "../utils/env";
-
-function deviceApiBase(): string {
-  if (
-    typeof window !== "undefined" &&
-    window.axonShell?.isElectron &&
-    import.meta.env.VITE_VOICE_ENGINE === "native"
-  ) {
-    return "http://127.0.0.1:8010/api/v1";
-  }
-  return env.apiBaseUrl;
-}
+import { deviceApiBase } from "../utils/deviceApiBase";
 
 export class DeviceApiError extends Error {
   readonly status: number;
@@ -28,6 +17,13 @@ function parseApiError(body: unknown, fallback: string): string {
   if (!body || typeof body !== "object") return fallback;
 
   const record = body as Record<string, unknown>;
+
+  const envelope = record.error;
+  if (typeof envelope === "object" && envelope && "message" in envelope) {
+    const message = (envelope as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+
   const detail = record.detail;
   if (typeof detail === "string" && detail.trim()) return detail;
 
@@ -129,10 +125,6 @@ async function deviceFetch(
 }
 
 export const deviceApi = {
-  /**
-   * Create a new device code (mirror calls this on startup).
-   * No authentication required.
-   */
   async createDeviceCode(): Promise<DeviceCode> {
     const response = await deviceFetch("/devices/codes", {
       method: "POST",
@@ -140,16 +132,12 @@ export const deviceApi = {
     });
 
     if (!response.ok) {
-      throw new Error("Failed to create device code");
+      throw new DeviceApiError("Failed to create device code", response.status);
     }
 
     return response.json();
   },
 
-  /**
-   * Check device code status (mirror polls this).
-   * No authentication required.
-   */
   async checkDeviceStatus(code: string): Promise<DeviceStatus> {
     const response = await deviceFetch(
       `/devices/codes/${encodeURIComponent(code)}/status`,
@@ -168,10 +156,6 @@ export const deviceApi = {
     return normalizeDeviceStatus(data);
   },
 
-  /**
-   * Link a device code to user account (phone calls this).
-   * Requires authentication.
-   */
   async linkDevice(code: string, accessToken: string): Promise<DeviceLinkResponse> {
     const payload = { code };
     const response = await deviceFetch("/devices/link", {
@@ -185,7 +169,14 @@ export const deviceApi = {
 
     if (!response.ok) {
       const body: unknown = await response.json().catch(() => null);
-      throw new Error(parseApiError(body, "Failed to link device"));
+      const message = parseApiError(body, "Failed to link device");
+      if (response.status === 404) {
+        throw new DeviceApiError(
+          `${message} Scan a fresh QR code on your mirror — this code was not found on the server.`,
+          response.status,
+        );
+      }
+      throw new DeviceApiError(message, response.status);
     }
 
     const data = (await response.json()) as Record<string, unknown>;

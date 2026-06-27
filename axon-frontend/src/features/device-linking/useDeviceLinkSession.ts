@@ -9,6 +9,8 @@ import { useAppStore } from "@/store";
 import type { DeviceCode } from "@/types/device";
 import { acquireDeviceCode, clearActiveDeviceCode, refreshDeviceCode } from "@/features/device-linking/deviceCodeSession";
 import { DeviceApiError } from "@/services/deviceApi";
+import { usesSharedRailwayBackend } from "@/utils/deviceApiBase";
+import { ACTIVE_DEVICE_CODE_KEY } from "@/utils/mirrorLink";
 import { isMirrorLinked, MIRROR_LINKED_EVENT } from "@/utils/authToken";
 import {
   applyMirrorLink,
@@ -77,6 +79,11 @@ export function useDeviceLinkSession() {
 
     async function bootstrap() {
       try {
+        // Stale codes from local backend cannot link via Vercel/Railway — discard once.
+        if (usesSharedRailwayBackend()) {
+          sessionStorage.removeItem(ACTIVE_DEVICE_CODE_KEY);
+        }
+
         const result = await acquireDeviceCode();
         if (cancelled) return;
 

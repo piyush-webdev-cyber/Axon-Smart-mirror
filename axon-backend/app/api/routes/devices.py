@@ -26,14 +26,24 @@ router = APIRouter(prefix="/devices", tags=["devices"])
 
 @router.post("/codes", response_model=DeviceCodeResponse)
 async def create_device_code(
+    request: Request,
     device_service: DeviceService = Depends(get_device_service),
 ):
     """Create a new device code for linking (mirror calls this on startup).
 
     No authentication required - any device can request a code.
     """
+    logger.info(
+        "[DEVICE] POST /codes | origin=%s | host=%s",
+        request.headers.get("origin"),
+        request.headers.get("host"),
+    )
     device_code = await device_service.create_device_code()
-    logger.info("Device code created: %s", device_code.get("code"))
+    logger.info(
+        "[DEVICE] POST /codes success | code=%s | expires=%s",
+        device_code.get("code"),
+        device_code.get("expires_at"),
+    )
     return DeviceCodeResponse(
         id=device_code["id"],
         code=device_code["code"],
@@ -53,9 +63,23 @@ async def check_device_status(
     No authentication required - public endpoint for device status checking.
     """
     normalized = code.strip().upper()
-    logger.info("Device status check: code=%s", normalized)
-    status = await device_service.check_device_status(normalized)
-    return DeviceStatusResponse(**status)
+    logger.info("[DEVICE] GET /codes/%s/status", normalized)
+    try:
+        status = await device_service.check_device_status(normalized)
+        logger.info(
+            "[DEVICE] GET /codes/%s/status success | status=%s",
+            normalized,
+            status.get("status"),
+        )
+        return DeviceStatusResponse(**status)
+    except AxonError as exc:
+        logger.warning(
+            "[DEVICE] GET /codes/%s/status rejected | status=%s | message=%s",
+            normalized,
+            exc.status_code,
+            exc.message,
+        )
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
 @router.post("/link", response_model=DeviceLinkResponse)
@@ -93,7 +117,7 @@ async def link_device(
             },
         )
 
-        logger.info("Device linked successfully | code=%s | user_id=%s", normalized_code, user.id)
+        logger.info("[DEVICE] link success | code=%s | user_id=%s", normalized_code, user.id)
 
         return DeviceLinkResponse(
             success=True,
@@ -126,7 +150,7 @@ async def link_device(
         ) from exc
     except AxonError as exc:
         logger.warning(
-            "Device link rejected | code=%s | user_id=%s | status=%s | message=%s",
+            "[DEVICE] link rejected | code=%s | user_id=%s | status=%s | message=%s",
             normalized_code,
             user.id,
             exc.status_code,

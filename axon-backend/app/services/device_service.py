@@ -14,7 +14,7 @@ from postgrest.exceptions import APIError
 from supabase import Client
 
 from app.core.config import settings
-from app.core.errors import AxonError
+from app.core.errors import AxonError, NotFoundError
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -85,20 +85,37 @@ class DeviceService:
         return f"{_STORAGE_PREFIX}/{code.strip().upper()}.json"
 
     def _storage_get(self, code: str) -> dict | None:
+        normalized = code.strip().upper()
         try:
-            raw = self._bucket().download(self._storage_object_path(code))
-            return json.loads(raw.decode("utf-8"))
-        except Exception:
+            raw = self._bucket().download(self._storage_object_path(normalized))
+            record = json.loads(raw.decode("utf-8"))
+            logger.info(
+                "[DEVICE] storage hit | code=%s | status=%s | expires=%s",
+                normalized,
+                record.get("status"),
+                record.get("expires_at"),
+            )
+            return record
+        except Exception as exc:
+            logger.debug("[DEVICE] storage miss | code=%s | reason=%s", normalized, exc)
             return None
 
     def _storage_put(self, record: dict) -> dict:
         code = record["code"].strip().upper()
         record = {**record, "code": code}
         payload = json.dumps(record).encode("utf-8")
+        path = self._storage_object_path(code)
         self._bucket().upload(
-            self._storage_object_path(code),
+            path,
             payload,
             file_options={"content-type": "application/json", "upsert": "true"},
+        )
+        logger.info(
+            "[DEVICE] saved storage | code=%s | path=%s | status=%s | expires=%s",
+            code,
+            path,
+            record.get("status"),
+            record.get("expires_at"),
         )
         return record
 
@@ -234,8 +251,15 @@ class DeviceService:
 
     async def create_device_code(self) -> dict:
         """Create a new device code for linking."""
+        logger.info("[DEVICE] generate start | backend=%s", self._storage_backend)
         code = self._generate_code()
         expires_at = datetime.utcnow() + timedelta(minutes=self.CODE_EXPIRY_MINUTES)
+        logger.info(
+            "[DEVICE] generated code=%s | expires=%s | backend=%s",
+            code,
+            expires_at.isoformat() + "Z",
+            self._storage_backend,
+        )
         record = {
             "id": str(uuid.uuid4()),
             "code": code,
@@ -251,12 +275,12 @@ class DeviceService:
 
         if self._storage_backend == "storage":
             saved = self._storage_put(record)
-            logger.info("Created storage device code: %s", code)
+            logger.info("[DEVICE] saved storage (create) | code=%s", code)
             return saved
 
         if self._storage_backend == "memory":
             saved = self._memory_put(record)
-            logger.info("Created dev device code: %s", code)
+            logger.info("[DEVICE] saved memory (create) | code=%s", code)
             return saved
 
         try:
@@ -276,7 +300,12 @@ class DeviceService:
                 raise AxonError("Failed to create device code", status_code=500)
 
             device_code = result.data[0]
-            logger.info("Created device code: %s (expires: %s)", code, expires_at)
+            logger.info(
+                "[DEVICE] saved db | code=%s | id=%s | expires=%s",
+                code,
+                device_code.get("id"),
+                device_code.get("expires_at"),
+            )
             return device_code
 
         except APIError as exc:
@@ -296,10 +325,14 @@ class DeviceService:
     async def get_device_code(self, code: str) -> dict | None:
         """Fetch device code by code string."""
         code = code.strip().upper()
+        logger.info("[DEVICE] lookup start | code=%s | backend=%s", code, self._storage_backend)
+
         if self._storage_backend == "storage":
             return self._storage_get(code)
         if self._storage_backend == "memory":
-            return self._memory_get(code)
+            found = self._memory_get(code)
+            logger.info("[DEVICE] lookup memory | code=%s | found=%s", code, bool(found))
+            return found
 
         try:
             result = (
@@ -309,31 +342,63 @@ class DeviceService:
                 .maybe_single()
                 .execute()
             )
-            return result.data
+            if result.data:
+                logger.info(
+                    "[DEVICE] lookup db hit | code=%s | status=%s | expires=%s | user_id=%s",
+                    code,
+                    result.data.get("status"),
+                    result.data.get("expires_at"),
+                    result.data.get("user_id"),
+                )
+                return result.data
+
+            logger.warning("[DEVICE] lookup db miss | code=%s — checking storage fallback", code)
+            stored = self._storage_get(code)
+            if stored:
+                return stored
+
+            logger.warning("[DEVICE] lookup not found | code=%s", code)
+            return None
 
         except APIError as exc:
+            logger.error("[DEVICE] lookup db error | code=%s | error=%s", code, exc)
             if self._is_missing_table(exc) and self._activate_storage_backend("device_codes table missing."):
                 stored = self._storage_get(code)
                 if stored:
                     return stored
                 if self._activate_memory_backend("Storage read after table missing."):
                     return self._memory_get(code)
-            logger.error("Failed to fetch device code %s: %s", code, exc)
+            stored = self._storage_get(code)
+            if stored:
+                logger.info("[DEVICE] lookup storage fallback after error | code=%s", code)
+                return stored
             return None
         except Exception as exc:
-            logger.error("Failed to fetch device code %s: %s", code, exc)
+            logger.exception("[DEVICE] lookup failed | code=%s | error=%s", code, exc)
+            stored = self._storage_get(code)
+            if stored:
+                return stored
             return None
 
     async def link_device(self, code: str, user_id: str) -> dict:
         """Link a device code to a user account."""
         code = code.strip().upper()
+        logger.info("[DEVICE] link start | code=%s | user_id=%s", code, user_id)
         device_code = await self.get_device_code(code)
 
         if not device_code:
-            raise AxonError("Invalid device code", status_code=404)
+            logger.warning("[DEVICE] link failure | code=%s | reason=not_found", code)
+            raise NotFoundError(
+                f"Device code '{code}' was not found. Scan a fresh QR code on your mirror."
+            )
 
         expires_at = self._parse_expires_at(device_code["expires_at"])
         if datetime.utcnow() > expires_at:
+            logger.warning(
+                "[DEVICE] link failure | code=%s | reason=expired | expired_at=%s",
+                code,
+                device_code.get("expires_at"),
+            )
             if self._storage_backend == "db":
                 try:
                     self.db.table("device_codes").update({"status": "expired"}).eq("code", code).execute()
@@ -344,11 +409,13 @@ class DeviceService:
             raise AxonError("Device code has expired", status_code=400)
 
         if device_code["status"] == "linked":
+            logger.warning("[DEVICE] link failure | code=%s | reason=already_linked", code)
             raise AxonError("Device code already linked", status_code=400)
 
         display_name, avatar_url = self._fetch_user_display(user_id)
         email = self._fetch_user_email(user_id)
         mirror_token = secrets.token_urlsafe(32)
+        logger.info("[DEVICE] link proceeding | code=%s | user_id=%s", code, user_id)
 
         if self._storage_backend in ("storage", "memory"):
             record = {
@@ -362,7 +429,7 @@ class DeviceService:
                 "updated_at": self._now_iso(),
             }
             linked = self._persist_fallback_record(record)
-            logger.info("Linked fallback device %s to user %s", code, user_id)
+            logger.info("[DEVICE] link success (storage) | code=%s | user_id=%s", code, user_id)
             return linked
 
         try:
@@ -381,7 +448,12 @@ class DeviceService:
             if not result.data:
                 raise AxonError("Failed to link device", status_code=500)
 
-            logger.info("Linked device %s to user %s", code, user_id)
+            logger.info(
+                "[DEVICE] link success (db) | code=%s | user_id=%s | mirror_token=%s…",
+                code,
+                user_id,
+                mirror_token[:8],
+            )
             linked = result.data[0]
             linked["mirror_token"] = mirror_token
             self._linked_meta[code] = {
@@ -427,10 +499,18 @@ class DeviceService:
         device_code = await self.get_device_code(code)
 
         if not device_code:
-            raise AxonError("Invalid device code", status_code=404)
+            logger.warning("[DEVICE] status failure | code=%s | reason=not_found", code)
+            raise NotFoundError(
+                f"Device code '{code}' was not found. Scan a fresh QR code on your mirror."
+            )
 
         expires_at = self._parse_expires_at(device_code["expires_at"])
         if datetime.utcnow() > expires_at and device_code["status"] == "pending":
+            logger.warning(
+                "[DEVICE] status expired | code=%s | expired_at=%s",
+                code,
+                device_code.get("expires_at"),
+            )
             if self._storage_backend == "db":
                 try:
                     self.db.table("device_codes").update({"status": "expired"}).eq("code", code).execute()

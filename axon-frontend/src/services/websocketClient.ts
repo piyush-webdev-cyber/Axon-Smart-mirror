@@ -1,4 +1,4 @@
-import { env } from "@/utils/env";
+import { deviceWsUrl } from "@/utils/deviceApiBase";
 import { WS_EVENTS } from "@/constants/wsEvents";
 import type {
   WsConnectionStatus,
@@ -38,9 +38,9 @@ class WebSocketClient {
 
   constructor() {}
 
-  /** Resolve WS URL on each connect so dev env/HMR changes apply without reload. */
+  /** Resolve WS URL on each connect — hosted device link uses Railway directly. */
   private getUrl(): string {
-    return env.wsUrl;
+    return deviceWsUrl();
   }
 
   getStatus(): WsConnectionStatus {
@@ -90,6 +90,8 @@ class WebSocketClient {
       console.info("[axon][websocket] open", { url });
       this.reconnectAttempts = 0;
       this.setStatus("open");
+      // Immediate ping keeps Railway/proxy connections alive before the 25s interval.
+      this.send(WS_EVENTS.ping, { t: Date.now() });
       this.startHeartbeat();
     };
 
@@ -113,9 +115,12 @@ class WebSocketClient {
 
     this.socket.onerror = (event) => {
       // eslint-disable-next-line no-console
-      console.error("[axon][websocket] error", { url, event });
-      // onclose will follow and drive reconnection
-      this.socket?.close();
+      console.error("[axon][websocket] error", {
+        url,
+        readyState: this.socket?.readyState,
+        event,
+      });
+      // Do not call close() here — it aborts in-flight handshakes and causes reconnect storms.
     };
   }
 

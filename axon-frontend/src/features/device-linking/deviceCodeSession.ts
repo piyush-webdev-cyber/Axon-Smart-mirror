@@ -2,6 +2,7 @@
 
 import { deviceApi, DeviceApiError } from "@/services/deviceApi";
 import type { DeviceCode, DeviceStatus } from "@/types/device";
+import { deviceApiBase } from "@/utils/deviceApiBase";
 import { isMirrorLinked } from "@/utils/authToken";
 import { ACTIVE_DEVICE_CODE_KEY } from "@/utils/mirrorLink";
 
@@ -23,10 +24,20 @@ function pendingCodeRecord(code: string): DeviceCode {
 
 async function createAndPersistCode(): Promise<DeviceCode> {
   if (!inflightCreate) {
+    const apiBase = deviceApiBase();
+    // eslint-disable-next-line no-console
+    console.info("[axon][deviceCode] creating code via", apiBase);
     inflightCreate = deviceApi
       .createDeviceCode()
       .then((created) => {
-        sessionStorage.setItem(ACTIVE_DEVICE_CODE_KEY, normalizeCode(created.code));
+        const normalized = normalizeCode(created.code);
+        sessionStorage.setItem(ACTIVE_DEVICE_CODE_KEY, normalized);
+        // eslint-disable-next-line no-console
+        console.info("[axon][deviceCode] saved", {
+          code: normalized,
+          apiBase,
+          expires_at: created.expires_at,
+        });
         return created;
       })
       .finally(() => {
@@ -48,6 +59,11 @@ export async function acquireDeviceCode(): Promise<{
   const saved = sessionStorage.getItem(ACTIVE_DEVICE_CODE_KEY);
   if (saved) {
     const normalized = normalizeCode(saved);
+    // eslint-disable-next-line no-console
+    console.info("[axon][deviceCode] reusing session code", {
+      code: normalized,
+      apiBase: deviceApiBase(),
+    });
     try {
       const status = await deviceApi.checkDeviceStatus(normalized);
       if (status.status === "linked") {

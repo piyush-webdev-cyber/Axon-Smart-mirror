@@ -17,6 +17,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_CORS_ORIGINS: list[str] = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
     "http://localhost:4173",
     "http://127.0.0.1:4173",
     "http://localhost:5174",
@@ -39,7 +41,7 @@ class Settings(BaseSettings):
     api_prefix: str = Field(default="/api/v1", alias="AXON_API_PREFIX")
     version: str = Field(default="0.1.0", alias="AXON_VERSION")
     service_name: str = "axon-backend"
-    phase: int = 1
+    phase: int = 5
 
     # --- CORS --------------------------------------------------------------
     # Type is str | list[str] to allow env var to be comma-separated or JSON
@@ -77,7 +79,18 @@ class Settings(BaseSettings):
     voice_piper_bin: str = Field(default="", alias="AXON_PIPER_BIN")
     voice_piper_model: str = Field(default="", alias="AXON_PIPER_MODEL")
     voice_port: int = Field(default=8010, alias="AXON_VOICE_PORT")
-    voice_local_mic: bool = Field(default=True, alias="AXON_VOICE_LOCAL_MIC")
+    voice_local_mic: bool = Field(default=False, alias="AXON_VOICE_LOCAL_MIC")
+
+    @field_validator("supabase_url", mode="before")
+    @classmethod
+    def _normalize_supabase_url(cls, value: object) -> str:
+        """Strip /rest/v1 suffix — supabase-py expects the project root URL."""
+        if not isinstance(value, str):
+            return ""
+        url = value.strip().rstrip("/")
+        if url.endswith("/rest/v1"):
+            url = url[: -len("/rest/v1")]
+        return url
 
     @field_validator("cors_origins", mode="before")
     @classmethod

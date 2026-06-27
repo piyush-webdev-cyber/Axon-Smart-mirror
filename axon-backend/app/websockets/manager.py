@@ -24,7 +24,7 @@ WsHandler = Callable[["WebSocket", dict], Awaitable[None]]
 def make_message(event: str, payload: dict | None = None) -> dict:
     """Build the canonical envelope shared with the frontend."""
     return {
-        "type": event,
+        "type": str(event),
         "payload": payload or {},
         "timestamp": datetime.now(UTC).isoformat(),
     }
@@ -46,11 +46,26 @@ class ConnectionManager:
         client = websocket.client
         label = f"{client.host}:{client.port}" if client else "unknown"
         logger.info("WS accept starting | client=%s | user_id=%s", label, user_id)
-        await websocket.accept()
+        try:
+            await websocket.accept()
+        except Exception as exc:
+            logger.exception(
+                "WS accept() failed | client=%s | user_id=%s | error=%s",
+                label,
+                user_id,
+                exc,
+            )
+            raise
         self._connections.add(websocket)
         if user_id:
             self._by_user.setdefault(user_id, set()).add(websocket)
-        logger.info("WS connected | client=%s | user_id=%s | total=%d", label, user_id, self.connection_count)
+        logger.info(
+            "WS connected | client=%s | user_id=%s | state=%s | total=%d",
+            label,
+            user_id,
+            websocket.client_state.name,
+            self.connection_count,
+        )
 
     def disconnect(self, websocket: WebSocket, user_id: str | None = None) -> None:
         client = websocket.client
@@ -65,7 +80,16 @@ class ConnectionManager:
     async def send(
         self, websocket: WebSocket, event: str, payload: dict | None = None
     ) -> None:
-        await websocket.send_json(make_message(event, payload))
+        try:
+            await websocket.send_json(make_message(event, payload))
+        except Exception as exc:
+            logger.exception(
+                "WS send failed | event=%s | client=%s | error=%s",
+                event,
+                websocket.client,
+                exc,
+            )
+            raise
 
     async def broadcast(self, event: str, payload: dict | None = None) -> None:
         message = make_message(event, payload)
@@ -99,7 +123,9 @@ class ConnectionManager:
 
     def _register_default_handlers(self) -> None:
         async def _on_ping(websocket: WebSocket, _payload: dict) -> None:
+            logger.info("WS PING | client=%s", websocket.client)
             await self.send(websocket, WsEvent.PONG)
+            logger.info("WS PONG | client=%s", websocket.client)
 
         self.register_handler(WsEvent.PING, _on_ping)
 

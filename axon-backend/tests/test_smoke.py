@@ -20,7 +20,7 @@ def test_health_ok() -> None:
 def test_system_info() -> None:
     res = client.get("/api/v1/system/info")
     assert res.status_code == 200
-    assert res.json()["phase"] == 1
+    assert res.json()["phase"] == 5
 
 
 def test_protected_requires_auth() -> None:

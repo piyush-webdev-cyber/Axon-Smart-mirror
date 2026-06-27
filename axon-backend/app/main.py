@@ -9,7 +9,6 @@ Interactive docs: http://localhost:8000/docs
 from __future__ import annotations
 
 import asyncio
-import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -19,7 +18,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
+from app.middleware.cors_logging import CorsLoggingMiddleware
 from app.middleware.error_handler import register_exception_handlers
+from app.middleware.ws_logging import WebSocketLoggingMiddleware
 from app.websockets.router import ws_router
 
 logger = get_logger(__name__)
@@ -74,8 +75,13 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         settings.phase,
         settings.version,
     )
-    await _bootstrap_hands_free_voice()
+
+    # Voice bootstrap disabled by default (AXON_VOICE_LOCAL_MIC=false).
+    # Electron calls POST /voice/start when voice is needed.
+    voice_bootstrap_task: asyncio.Task[None] | None = None
+
     yield
+
     logger.info("Axon backend shutting down.")
     if settings.voice_local_mic:
         from app.services.local_mic_service import get_local_mic_service
@@ -105,11 +111,18 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
+        # Vercel preview deployments (e.g. axon-smart-mirror-git-main.vercel.app)
+        allow_origin_regex=r"https://.*\.vercel\.app",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=["*"],
+        max_age=86400,
     )
+
+    # Log WS upgrades + HTTP 101 at the ASGI layer (Railway proxy debugging).
+    app.add_middleware(WebSocketLoggingMiddleware)
+    app.add_middleware(CorsLoggingMiddleware)
 
     register_exception_handlers(app)
 
