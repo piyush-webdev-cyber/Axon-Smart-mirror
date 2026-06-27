@@ -8,7 +8,7 @@ from fastapi import Depends, Header
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.errors import AxonError, UnauthorizedError
-from app.core.mirror_auth import resolve_mirror_user
+from app.core.mirror_auth import resolve_mirror_session
 from app.core.security import AuthenticatedUser, decode_supabase_jwt
 from app.db.supabase import get_supabase, get_supabase_admin
 
@@ -31,12 +31,18 @@ async def get_photo_user(
         HTTPAuthorizationCredentials | None, Depends(_bearer)
     ],
     mirror_token: Annotated[str | None, Header(alias="X-Mirror-Token")] = None,
+    linked_code: Annotated[str | None, Header(alias="X-Linked-Code")] = None,
+    linked_user_id: Annotated[str | None, Header(alias="X-Linked-User-Id")] = None,
 ) -> AuthenticatedUser:
-    """Accept Supabase JWT or a linked mirror device token."""
+    """Accept Supabase JWT, mirror token, or linked device session headers."""
     if credentials and credentials.credentials:
         return decode_supabase_jwt(credentials.credentials)
-    if mirror_token:
-        return await resolve_mirror_user(mirror_token)
+    if mirror_token or linked_user_id:
+        return await resolve_mirror_session(
+            mirror_token=mirror_token,
+            linked_code=linked_code,
+            linked_user_id=linked_user_id,
+        )
     raise UnauthorizedError("Missing authentication token.")
 
 

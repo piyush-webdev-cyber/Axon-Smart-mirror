@@ -1,6 +1,8 @@
 /** Auth headers for API calls (Supabase session or linked mirror token). */
 
+import { deviceApi } from "@/services/deviceApi";
 import { supabase } from "@/services/supabaseClient";
+import { ACTIVE_DEVICE_CODE_KEY } from "@/utils/mirrorLink";
 
 export const MIRROR_TOKEN_KEY = "axon_mirror_token";
 export const LINKED_USER_KEY = "axon_linked_user_id";
@@ -37,10 +39,55 @@ export function isMirrorLinked(): boolean {
   return Boolean(getMirrorToken() && getLinkedUserId());
 }
 
+/** Resolve linked device code from storage or the active link session. */
+export function resolveLinkedDeviceCode(): string | null {
+  const saved = getLinkedDeviceCode();
+  if (saved) return saved.trim().toUpperCase();
+
+  const active = sessionStorage.getItem(ACTIVE_DEVICE_CODE_KEY);
+  if (active) {
+    const normalized = active.trim().toUpperCase();
+    storeLinkedDeviceCode(normalized);
+    return normalized;
+  }
+
+  return null;
+}
+
+export async function refreshMirrorSession(): Promise<void> {
+  const userId = getLinkedUserId();
+  const code = resolveLinkedDeviceCode();
+  if (!userId || !code) return;
+
+  try {
+    const status = await deviceApi.checkDeviceStatus(code);
+    if (status.status === "linked" && status.user_id && status.mirror_token) {
+      storeMirrorAuth(status.user_id, status.mirror_token);
+      storeLinkedDeviceCode(code);
+    }
+  } catch {
+    /* server will fall back to code+user headers */
+  }
+}
+
 export async function getAuthHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {};
   const mirrorToken = getMirrorToken();
+  const userId = getLinkedUserId();
+  const linkedCode = resolveLinkedDeviceCode();
+
   if (mirrorToken) {
-    return { "X-Mirror-Token": mirrorToken };
+    headers["X-Mirror-Token"] = mirrorToken;
+  }
+  if (userId) {
+    headers["X-Linked-User-Id"] = userId;
+  }
+  if (linkedCode) {
+    headers["X-Linked-Code"] = linkedCode;
+  }
+
+  if (mirrorToken || userId) {
+    return headers;
   }
 
   const { data } = await supabase.auth.getSession();

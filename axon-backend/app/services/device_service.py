@@ -14,7 +14,7 @@ from postgrest.exceptions import APIError
 from supabase import Client
 
 from app.core.config import settings
-from app.core.errors import AxonError, NotFoundError
+from app.core.errors import AxonError, NotFoundError, UnauthorizedError
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -119,6 +119,19 @@ class DeviceService:
             record.get("expires_at"),
         )
         return record
+
+    def _backup_linked_to_storage(self, record: dict) -> None:
+        """Persist linked device record to storage for cross-instance mirror auth."""
+        if not record.get("code") or record.get("status") != "linked":
+            return
+        try:
+            self._storage_put(record)
+        except Exception as exc:
+            logger.warning(
+                "[DEVICE] linked storage backup failed | code=%s | error=%s",
+                record.get("code"),
+                exc,
+            )
 
     def _persist_mirror_token_index(
         self, mirror_token: str, user_id: str, code: str
@@ -259,11 +272,25 @@ class DeviceService:
         device_code = await self.get_device_code(code)
         if device_code and device_code.get("mirror_token"):
             token = str(device_code["mirror_token"])
-            self._linked_meta[code] = {**meta, "mirror_token": token}
+            user_id = device_code.get("user_id")
+            self._linked_meta[code] = {**meta, "mirror_token": token, "user_id": user_id}
             return token
 
+        # Storage backup from a prior link (db column may be missing)
+        if self._storage_backend == "db":
+            stored = self._storage_get(code)
+            if stored and stored.get("mirror_token"):
+                token = str(stored["mirror_token"])
+                user_id = stored.get("user_id")
+                self._linked_meta[code] = {**meta, "mirror_token": token, "user_id": user_id}
+                return token
+
+        if device_code and device_code.get("status") == "linked" and not device_code.get("mirror_token"):
+            user_id = device_code.get("user_id")
+        else:
+            user_id = device_code.get("user_id") if device_code else meta.get("user_id")
+
         token = secrets.token_urlsafe(32)
-        user_id = device_code.get("user_id") if device_code else meta.get("user_id")
         self._linked_meta[code] = {**meta, "mirror_token": token, "user_id": user_id}
 
         if self._storage_backend in ("storage", "memory") and code:
@@ -284,8 +311,31 @@ class DeviceService:
 
         if user_id:
             self._persist_mirror_token_index(token, str(user_id), code)
+            if device_code:
+                backup = {**device_code, "mirror_token": token, "code": code}
+                self._backup_linked_to_storage(backup)
 
         return token
+
+    async def verify_mirror_session(self, code: str, user_id: str) -> dict:
+        """Verify mirror kiosk session and ensure a persisted mirror token."""
+        status = await self.check_device_status(code)
+        if status.get("status") != "linked":
+            raise UnauthorizedError("Mirror is not linked.")
+        if str(status.get("user_id")) != str(user_id):
+            raise UnauthorizedError("Invalid mirror session.")
+
+        token = status.get("mirror_token")
+        if not token:
+            token = await self._ensure_mirror_token(code)
+            status["mirror_token"] = token
+
+        self._persist_mirror_token_index(token, str(user_id), code)
+        record = await self.get_device_code(code)
+        if record:
+            self._backup_linked_to_storage({**record, "mirror_token": token, "code": code})
+
+        return status
 
     async def create_device_code(self) -> dict:
         """Create a new device code for linking."""
@@ -503,6 +553,14 @@ class DeviceService:
                 "email": email,
             }
             self._persist_mirror_token_index(mirror_token, user_id, code)
+            self._backup_linked_to_storage({
+                **linked,
+                "code": code,
+                "mirror_token": mirror_token,
+                "display_name": display_name,
+                "avatar_url": avatar_url,
+                "email": email,
+            })
             return linked
 
         except APIError as exc:
@@ -529,6 +587,14 @@ class DeviceService:
                     "email": email,
                 }
                 self._persist_mirror_token_index(mirror_token, user_id, code)
+                self._backup_linked_to_storage({
+                    **record,
+                    "code": code,
+                    "mirror_token": mirror_token,
+                    "display_name": display_name,
+                    "avatar_url": avatar_url,
+                    "email": email,
+                })
                 return record
             logger.error("Failed to link device %s: %s", code, exc)
             raise AxonError("Failed to link device", status_code=500) from exc

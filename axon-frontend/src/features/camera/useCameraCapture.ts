@@ -4,12 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { WS_EVENTS } from "@/constants/wsEvents";
 import { ROUTES } from "@/constants/routes";
-import { deviceApi } from "@/services/deviceApi";
 import { photoApi } from "@/services/photoApi";
 import { websocketClient } from "@/services/websocketClient";
 import { useAppStore } from "@/store";
 import type { CameraState } from "@/store/slices/cameraSlice";
-import { getLinkedDeviceCode, storeMirrorAuth } from "@/utils/authToken";
+import { refreshMirrorSession } from "@/utils/authToken";
 
 const COUNTDOWN_SECONDS = 3;
 const VIDEO_READY_TIMEOUT_MS = 10_000;
@@ -90,14 +89,7 @@ export function useCameraCapture() {
     voiceCaptureHandledRef.current = false;
     void startCamera();
 
-    const linkedCode = getLinkedDeviceCode();
-    if (linkedCode) {
-      void deviceApi.checkDeviceStatus(linkedCode).then((status) => {
-        if (status.status === "linked" && status.user_id && status.mirror_token) {
-          storeMirrorAuth(status.user_id, status.mirror_token);
-        }
-      }).catch(() => undefined);
-    }
+    void refreshMirrorSession();
 
     return () => {
       clearCountdownTimer();
@@ -117,6 +109,7 @@ export function useCameraCapture() {
       emit(WS_EVENTS.photoUploadStarted, {});
 
       try {
+        await refreshMirrorSession();
         const file = new File([blob], `photo_${Date.now()}.jpg`, {
           type: "image/jpeg",
         });

@@ -48,7 +48,10 @@ export function useDeviceLinkSession() {
     (payload: Parameters<typeof applyMirrorLink>[0]) => {
       if (linkedRef.current || isMirrorLinked()) return;
       linkedRef.current = true;
-      const linkedDeviceCode = deviceCodeRef.current?.code ?? null;
+      const linkedDeviceCode =
+        deviceCodeRef.current?.code ??
+        sessionStorage.getItem(ACTIVE_DEVICE_CODE_KEY) ??
+        null;
       clearActiveDeviceCode();
       applyMirrorLink({ ...payload, linkedDeviceCode });
       setDeviceLinkUiActive(false);

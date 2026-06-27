@@ -61,6 +61,43 @@ def _resolve_storage_mirror_token(mirror_token: str) -> AuthenticatedUser | None
         return None
 
 
+def _resolve_storage_device_code_token(mirror_token: str) -> AuthenticatedUser | None:
+    """Scan device-codes/*.json backups for a matching mirror_token."""
+    admin = get_supabase_admin()
+    if not admin:
+        return None
+
+    try:
+        bucket = admin.storage.from_(settings.supabase_storage_bucket)
+        entries = bucket.list("device-codes")
+        for entry in entries or []:
+            name = entry.get("name") if isinstance(entry, dict) else getattr(entry, "name", None)
+            if not name or not str(name).endswith(".json"):
+                continue
+            try:
+                raw = bucket.download(f"device-codes/{name}")
+                record = json.loads(raw.decode("utf-8"))
+            except Exception:
+                continue
+            if record.get("mirror_token") != mirror_token:
+                continue
+            if record.get("status") != "linked":
+                continue
+            user_id = record.get("user_id")
+            if not user_id:
+                continue
+            logger.info("[MIRROR_AUTH] device-codes backup hit | user_id=%s", user_id)
+            return AuthenticatedUser(
+                id=str(user_id),
+                email=None,
+                role="authenticated",
+                claims={"mirror": True},
+            )
+    except Exception as exc:
+        logger.debug("[MIRROR_AUTH] device-codes scan miss | reason=%s", exc)
+    return None
+
+
 def _resolve_fallback_mirror_user(mirror_token: str) -> AuthenticatedUser | None:
     """Storage or in-memory device codes when Supabase table is not migrated."""
     from app.services.device_service import DeviceService
@@ -70,6 +107,10 @@ def _resolve_fallback_mirror_user(mirror_token: str) -> AuthenticatedUser | None
         return user
 
     user = _resolve_storage_mirror_token(mirror_token)
+    if user:
+        return user
+
+    user = _resolve_storage_device_code_token(mirror_token)
     if user:
         return user
 
@@ -140,3 +181,86 @@ async def resolve_mirror_user(mirror_token: str) -> AuthenticatedUser:
         role="authenticated",
         claims={"mirror": True},
     )
+
+
+async def resolve_mirror_by_linked_code(code: str, user_id: str) -> AuthenticatedUser:
+    """Validate mirror kiosk via linked device code + user id (stable fallback)."""
+    from app.services.device_service import DeviceService
+
+    admin = get_supabase_admin()
+    if not admin:
+        raise UnauthorizedError("Mirror authentication is not configured.")
+
+    service = DeviceService(admin)
+    status = await service.verify_mirror_session(code.strip().upper(), user_id.strip())
+
+    logger.info(
+        "[MIRROR_AUTH] session verified | code=%s | user_id=%s",
+        code.strip().upper(),
+        user_id,
+    )
+    return AuthenticatedUser(
+        id=str(status["user_id"]),
+        email=status.get("email"),
+        role="authenticated",
+        claims={"mirror": True, "code": code.strip().upper()},
+    )
+
+
+async def resolve_mirror_by_user_id(user_id: str) -> AuthenticatedUser:
+    """Find the linked device for a user when the mirror lost its device code."""
+    from app.services.device_service import DeviceService
+
+    admin = get_supabase_admin()
+    if not admin:
+        raise UnauthorizedError("Mirror authentication is not configured.")
+
+    service = DeviceService(admin)
+    try:
+        result = (
+            admin.table("device_codes")
+            .select("code, user_id, status, mirror_token")
+            .eq("user_id", user_id.strip())
+            .eq("status", "linked")
+            .order("updated_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = result.data or []
+    except Exception as exc:
+        logger.warning("[MIRROR_AUTH] user_id lookup error | error=%s", exc)
+        raise UnauthorizedError("Invalid mirror session.") from None
+
+    if not rows:
+        raise UnauthorizedError("Invalid mirror session.")
+
+    row = rows[0]
+    code = str(row.get("code") or "")
+    if not code:
+        raise UnauthorizedError("Invalid mirror session.")
+
+    return await resolve_mirror_by_linked_code(code, user_id)
+
+
+async def resolve_mirror_session(
+    *,
+    mirror_token: str | None = None,
+    linked_code: str | None = None,
+    linked_user_id: str | None = None,
+) -> AuthenticatedUser:
+    """Try mirror token first, then linked code + user id, then user id alone."""
+    if mirror_token:
+        try:
+            return await resolve_mirror_user(mirror_token)
+        except UnauthorizedError:
+            logger.warning("[MIRROR_AUTH] token rejected — trying session fallback")
+
+    if linked_code and linked_user_id:
+        return await resolve_mirror_by_linked_code(linked_code, linked_user_id)
+
+    if linked_user_id:
+        return await resolve_mirror_by_user_id(linked_user_id)
+
+    if mirror_token:
+        raise UnauthorizedError("Invalid mirror token.")
+    raise UnauthorizedError("Missing mirror authentication.")

@@ -3,14 +3,15 @@
 import { useAppStore } from "@/store";
 import type { DeviceStatus } from "@/types/device";
 import {
+  storeLinkedDeviceCode,
   storeLinkedDisplayName,
   storeLinkedEmail,
   storeMirrorAuth,
-  storeLinkedDeviceCode,
   getLinkedDisplayName,
   getLinkedEmail,
   getLinkedUserId,
   isMirrorLinked,
+  resolveLinkedDeviceCode,
 } from "@/utils/authToken";
 
 export const ACTIVE_DEVICE_CODE_KEY = "axon_active_device_code";
@@ -35,8 +36,10 @@ export function applyMirrorLink(payload: MirrorLinkPayload): void {
   if (email) {
     storeLinkedEmail(email);
   }
-  if (linkedDeviceCode) {
-    storeLinkedDeviceCode(linkedDeviceCode);
+
+  const code = linkedDeviceCode?.trim().toUpperCase() ?? resolveLinkedDeviceCode();
+  if (code) {
+    storeLinkedDeviceCode(code);
   }
 
   sessionStorage.removeItem(ACTIVE_DEVICE_CODE_KEY);
