@@ -13,6 +13,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.mirror_auth import resolve_mirror_user
 from app.core.security import decode_supabase_jwt
 from app.websockets.events import WsEvent
 from app.websockets.manager import connection_manager
@@ -36,17 +37,25 @@ def _request_headers(websocket: WebSocket) -> dict[str, str]:
     }
 
 
-def _resolve_user_id(token: str | None) -> str | None:
-    if not token:
-        logger.info("WS auth skipped: anonymous connection")
-        return None
-    try:
-        user_id = decode_supabase_jwt(token).id
-        logger.info("WS auth resolved: user_id=%s", user_id)
-        return user_id
-    except Exception as exc:  # noqa: BLE001 - anonymous connection is allowed in Phase 1
-        logger.warning("WS auth failed; continuing anonymously: %s", exc)
-        return None
+async def _resolve_user_id(token: str | None, mirror_token: str | None = None) -> str | None:
+    if token:
+        try:
+            user_id = decode_supabase_jwt(token).id
+            logger.info("WS auth resolved: user_id=%s", user_id)
+            return user_id
+        except Exception as exc:  # noqa: BLE001 - try mirror token next
+            logger.warning("WS JWT auth failed: %s", exc)
+
+    if mirror_token:
+        try:
+            user_id = (await resolve_mirror_user(mirror_token)).id
+            logger.info("WS mirror auth resolved: user_id=%s", user_id)
+            return user_id
+        except Exception as exc:  # noqa: BLE001 - anonymous connection is allowed
+            logger.warning("WS mirror auth failed; continuing anonymously: %s", exc)
+
+    logger.info("WS auth skipped: anonymous connection")
+    return None
 
 
 async def _send_ws_error(websocket: WebSocket, message: str) -> None:
@@ -88,7 +97,11 @@ async def _close_ws(
 
 
 @ws_router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str | None = None) -> None:
+async def websocket_endpoint(
+    websocket: WebSocket,
+    token: str | None = None,
+    mirror_token: str | None = None,
+) -> None:
     """Main mirror WebSocket — anonymous connections allowed in Phase 1."""
     client = _client_label(websocket)
     headers = _request_headers(websocket)
@@ -98,7 +111,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = None) -> 
     logger.info("WS CONNECT | client=%s | path=%s | origin=%s", client, websocket.url.path, headers.get("origin"))
 
     try:
-        user_id = _resolve_user_id(token)
+        user_id = await _resolve_user_id(token, mirror_token)
 
         allowed_origins = settings.get_cors_origins()
         origin = headers.get("origin")
@@ -168,7 +181,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = None) -> 
 
             msg_type = message.get("type") if isinstance(message, dict) else type(message).__name__
             if msg_type in ("system.ping", "system.pong"):
-                logger.info("WS %s | client=%s", msg_type.upper().replace(".", " "), client)
+                logger.debug("WS %s | client=%s", msg_type.upper().replace(".", " "), client)
             else:
                 logger.info("WS MESSAGE | client=%s | type=%s", client, msg_type)
             await connection_manager.dispatch(websocket, message)

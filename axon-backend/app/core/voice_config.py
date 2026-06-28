@@ -9,15 +9,18 @@ from __future__ import annotations
 
 import re
 
-VOICE_ASSISTANT_NAME = "Nexa"
-WAKE_WORD = VOICE_ASSISTANT_NAME
+VOICE_ASSISTANT_NAME = "Jarvis"
+WAKE_WORD = "hey jarvis"
+
+# Alternate wake phrases (stripped before offline intent matching).
+WAKE_WORD_ALIASES = ("hey jarvis", "jarvis", "axon", "nexa")
 
 WAKE_WORD_PATTERN = re.compile(
-    rf"^{re.escape(WAKE_WORD)}[,\s!:.-]*",
+    r"^(?:hey[\s,]+jarvis|jarvis|axon|nexa)[,\s!:.-]*",
     re.IGNORECASE,
 )
 
 WAKE_WORD_BOUNDARY_PATTERN = re.compile(
-    rf"\b{re.escape(WAKE_WORD)}\b",
+    r"\b(?:hey[\s,]+jarvis|jarvis|axon|nexa)\b",
     re.IGNORECASE,
 )

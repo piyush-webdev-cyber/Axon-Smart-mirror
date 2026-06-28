@@ -115,9 +115,7 @@ function toApiBaseUrl(raw: string): string {
   // Electron native voice — local FastAPI; photos/gallery use restApiBase() → Railway when hosted.
 
   if (isElectronShell() && import.meta.env.VITE_VOICE_ENGINE === "native") {
-
-    return "http://127.0.0.1:8010/api/v1";
-
+    return "http://127.0.0.1:18010/api/v1";
   }
 
 
@@ -170,7 +168,7 @@ function toWebSocketUrl(raw: string): string {
 
     }
 
-    return "ws://127.0.0.1:8010/api/v1/ws";
+    return "ws://127.0.0.1:18010/api/v1/ws";
 
   }
 

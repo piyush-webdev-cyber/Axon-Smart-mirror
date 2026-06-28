@@ -17,6 +17,33 @@ OPENWEATHER_FORECAST_URL = "https://api.openweathermap.org/data/2.5/forecast"
 IP_API_URL = "http://ip-api.com/json"
 IPWHO_URL = "https://ipwho.is"
 
+_WEATHER_CACHE: dict[str, tuple[float, dict]] = {}
+_WEATHER_CACHE_TTL_SEC = 3600.0
+
+
+def _weather_cache_key(lat: float, lon: float) -> str:
+    return f"{lat:.3f},{lon:.3f}"
+
+
+def store_weather_cache(lat: float, lon: float, payload: dict) -> None:
+    import time
+
+    _WEATHER_CACHE[_weather_cache_key(lat, lon)] = (time.time(), payload)
+
+
+def fetch_cached_weather(lat: float | None, lon: float | None) -> dict | None:
+    if lat is None or lon is None:
+        return None
+    import time
+
+    entry = _WEATHER_CACHE.get(_weather_cache_key(lat, lon))
+    if not entry:
+        return None
+    ts, data = entry
+    if time.time() - ts > _WEATHER_CACHE_TTL_SEC:
+        return None
+    return data
+
 
 def _map_condition(code: int) -> tuple[str, str]:
     """Map OpenWeather condition codes to UI buckets."""
@@ -237,6 +264,7 @@ async def _request_openweather(params: dict) -> dict:
     lat = coord.get("lat")
     lon = coord.get("lon")
     if lat is not None and lon is not None:
+        store_weather_cache(float(lat), float(lon), result)
         try:
             result["forecast"] = await fetch_forecast(float(lat), float(lon))
         except Exception as exc:  # noqa: BLE001

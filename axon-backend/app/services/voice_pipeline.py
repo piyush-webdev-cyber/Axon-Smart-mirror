@@ -20,8 +20,11 @@ from app.services.wakeword_service import effective_listen_phrase, get_wakeword_
 logger = get_logger(__name__)
 
 SILENCE_MS = 1200
-MAX_COMMAND_MS = 8000
+MAX_COMMAND_MS = 10_000
+PARTIAL_STT_INTERVAL_S = 1.4
+PARTIAL_STT_MIN_BYTES = SAMPLE_RATE * 2  # ~1s of mono PCM16
 WAKE_ACK_PHRASE = "Yes?"
+FINAL_TRANSCRIPT_FREEZE_S = 2.5
 _PCM_LOG_EVERY = 50
 _pcm_call_count = 0
 
@@ -45,6 +48,27 @@ class VoicePipeline:
         self._wake_mode = True
         self._lock = asyncio.Lock()
         self._event_subscribers: set[Any] = set()
+        self._session_context: dict[str, Any] = {}
+        self._last_partial_stt_at: float = 0.0
+        self._partial_stt_running = False
+        self._last_partial_text = ""
+
+    def set_session_context(
+        self,
+        *,
+        lat: float | None = None,
+        lon: float | None = None,
+        display_name: str | None = None,
+        user_id: str | None = None,
+    ) -> None:
+        if lat is not None:
+            self._session_context["lat"] = lat
+        if lon is not None:
+            self._session_context["lon"] = lon
+        if display_name is not None:
+            self._session_context["display_name"] = display_name
+        if user_id is not None:
+            self._session_context["user_id"] = user_id
 
     @property
     def state(self) -> PipelineState:
@@ -97,7 +121,14 @@ class VoicePipeline:
             "tts": tts.status().__dict__,
         }
 
-    async def handle_control(self, action: str) -> list[dict[str, object]]:
+    async def handle_control(self, action: str, payload: dict | None = None) -> list[dict[str, object]]:
+        if payload:
+            self.set_session_context(
+                lat=payload.get("lat"),
+                lon=payload.get("lon"),
+                display_name=payload.get("display_name") or payload.get("displayName"),
+                user_id=payload.get("user_id") or payload.get("userId"),
+            )
         if action == "pause_wake":
             self._wake_mode = False
             self._reset_command()
@@ -115,9 +146,13 @@ class VoicePipeline:
             await self._broadcast(events)
             return events
         if action == "start_stt":
+            self._wake_mode = False
             self._state = PipelineState.RECORDING
             self._reset_command()
-            logger.info("[STT] Recording started")
+            now = time.monotonic()
+            self._command_started_at = now
+            self._last_voice_at = now
+            logger.info("[STT] Recording started (manual capture)")
             events = [
                 self._event("recording_started"),
                 self._event("status", state=self._state.value),
@@ -125,6 +160,7 @@ class VoicePipeline:
             await self._broadcast(events)
             return events
         if action == "stop_stt":
+            logger.info("[STT] Recording stopped (manual capture)")
             return await self._finalize_command(force=True)
         return [self._event("error", message=f"Unknown control action: {action}")]
 
@@ -186,8 +222,46 @@ class VoicePipeline:
             and len(self._command_buffer) > SAMPLE_RATE // 2
         ):
             events.extend(await self._finalize_command(force=True))
+            return events
+
+        if len(self._command_buffer) >= PARTIAL_STT_MIN_BYTES:
+            events.extend(await self._maybe_partial_stt(now))
 
         return events
+
+    async def _maybe_partial_stt(self, now: float) -> list[dict[str, object]]:
+        """Emit live subtitle text while the user is still speaking."""
+        if self._partial_stt_running:
+            return []
+        if now - self._last_partial_stt_at < PARTIAL_STT_INTERVAL_S:
+            return []
+        if self._last_voice_at is None or (now - self._last_voice_at) * 1000 > 900:
+            return []
+
+        self._last_partial_stt_at = now
+        self._partial_stt_running = True
+        pcm = bytes(self._command_buffer)
+
+        async def _run() -> None:
+            try:
+                stt = get_stt_service()
+                if not stt.available or not pcm:
+                    return
+                text = await asyncio.to_thread(stt.transcribe_pcm16, pcm, partial=True)
+                if (
+                    text
+                    and text != self._last_partial_text
+                    and self._state == PipelineState.RECORDING
+                ):
+                    self._last_partial_text = text
+                    await self._broadcast([self._event("stt_interim", text=text)])
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("[STT] Partial transcription skipped: %s", exc)
+            finally:
+                self._partial_stt_running = False
+
+        asyncio.create_task(_run())
+        return []
 
     async def _finalize_command(self, *, force: bool = False) -> list[dict[str, object]]:
         if self._state != PipelineState.RECORDING and not force:
@@ -227,13 +301,18 @@ class VoicePipeline:
             logger.info("[STT] Transcript Received: %s", text)
             events.append(self._event("stt_final", text=text))
         events.append(self._event("stt_end"))
+        await self._broadcast(events)
 
         if text:
-            events.extend(await self._process_and_speak(text))
+            await asyncio.sleep(FINAL_TRANSCRIPT_FREEZE_S)
+            proc_events = await self._process_and_speak(text)
+            await self._broadcast(proc_events)
+            events.extend(proc_events)
         else:
-            events.extend(await self._resume_listening())
+            resume = await self._resume_listening()
+            events.extend(resume)
+            await self._broadcast(resume)
 
-        await self._broadcast(events)
         return events
 
     async def _process_and_speak(self, transcript: str) -> list[dict[str, object]]:
@@ -242,9 +321,20 @@ class VoicePipeline:
         events.append(self._event("processing_started", transcript=transcript))
 
         try:
-            logger.info("[AI] Gemini Request Sent")
-            result = await process_voice_command(transcript)
-            logger.info("[AI] Gemini Response Received: %s", str(result.get("reply", ""))[:120])
+            ctx = self._session_context
+            logger.info("[VOICE] Processing transcript offline-first")
+            result = await process_voice_command(
+                transcript,
+                lat=ctx.get("lat"),
+                lon=ctx.get("lon"),
+                display_name=ctx.get("display_name"),
+                user_id=ctx.get("user_id"),
+            )
+            logger.info(
+                "[VOICE] Intent resolved source=%s action=%s",
+                result.get("source"),
+                result.get("action"),
+            )
         except Exception as exc:  # noqa: BLE001
             logger.exception("[AI] Response generation failed: %s", exc)
             events.append(self._event("error", message="Could not generate a response."))
@@ -258,6 +348,7 @@ class VoicePipeline:
                 "response_ready",
                 reply=reply,
                 action=result.get("action"),
+                musicQuery=result.get("music_query"),
                 source=result.get("source"),
             ),
         )
@@ -301,6 +392,9 @@ class VoicePipeline:
         self._command_buffer = bytearray()
         self._command_started_at = None
         self._last_voice_at = None
+        self._last_partial_stt_at = 0.0
+        self._partial_stt_running = False
+        self._last_partial_text = ""
 
     def _listen_phrase(self) -> str:
         return effective_listen_phrase(settings.voice_wakeword_model_path or None)
@@ -318,7 +412,7 @@ class VoicePipeline:
                 logger.warning("Voice pipeline subscriber error: %s", exc)
 
 
-def _has_voice_energy(chunk: bytes, threshold: int = 500) -> bool:
+def _has_voice_energy(chunk: bytes, threshold: int = 90) -> bool:
     if len(chunk) < 2:
         return False
     samples = np.frombuffer(chunk, dtype=np.int16)

@@ -24,6 +24,9 @@ def configure_logging() -> None:
         format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    if not settings.debug:
+        for name in ("httpcore", "httpx", "hpack", "hpack.hpack", "hpack.table", "urllib3"):
+            logging.getLogger(name).setLevel(logging.WARNING)
     _CONFIGURED = True
 
 

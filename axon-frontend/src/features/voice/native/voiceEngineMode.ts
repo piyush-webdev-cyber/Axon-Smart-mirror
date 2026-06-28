@@ -10,6 +10,8 @@ export function isElectronRuntime(): boolean {
 export function isNativeVoiceEngine(): boolean {
   if (typeof window === "undefined") return false;
   if (import.meta.env.VITE_VOICE_ENGINE !== "native") return false;
+  // Browser Vite dev has no Faster-Whisper — use Web Speech API instead.
+  if (!isElectronRuntime()) return false;
   return Boolean(window.axonVoice?.isNativeEngine?.());
 }
 

@@ -22,12 +22,15 @@ function getLanOrigin(port = 5173) {
 let mainWindow = null;
 /** @type {ReturnType<typeof createSettingsStore> | null} */
 let store = null;
+/** Active FastAPI base URL (no trailing slash), set after startVoiceServer(). */
+let activeVoiceUrl = "http://127.0.0.1:18010";
 
 function getVoiceBackendUrl() {
   return (
+    activeVoiceUrl ||
     process.env.AXON_VOICE_BACKEND_URL ||
     store?.get("voiceBackendUrl") ||
-    "http://127.0.0.1:8010"
+    "http://127.0.0.1:18010"
   );
 }
 
@@ -52,8 +55,9 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
       autoplayPolicy: "no-user-gesture-required",
+      additionalArguments: [`--axon-voice-url=${encodeURIComponent(getVoiceBackendUrl())}`],
     },
   });
 
@@ -144,23 +148,23 @@ app.whenReady().then(async () => {
     return Boolean(store.get("autoLaunch"));
   });
 
-  const voicePort = Number(process.env.AXON_VOICE_PORT || 8010);
-  const voiceUrl =
-    process.env.AXON_VOICE_BACKEND_URL ||
-    store?.get("voiceBackendUrl") ||
-    `http://127.0.0.1:${voicePort}`;
+  const voicePort = Number(process.env.AXON_VOICE_PORT || 18010);
 
   if (process.env.AXON_VOICE_AUTOSTART !== "0") {
     try {
       const result = await startVoiceServer(voicePort);
+      activeVoiceUrl = result.url.replace(/\/$/, "");
+      store?.set("voiceBackendUrl", activeVoiceUrl);
       // eslint-disable-next-line no-console
       console.info(
-        `[axon-electron] Voice backend ready at ${voiceUrl}${result.reused ? " (reused)" : ""}`,
+        `[axon-electron] Voice backend ready at ${activeVoiceUrl}${result.reused ? " (reused)" : ""}`,
       );
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error("[axon-electron] Failed to start voice backend:", error);
     }
+  } else {
+    activeVoiceUrl = getVoiceBackendUrl().replace(/\/$/, "");
   }
 
   ipcMain.handle("axon-voice:get-backend-url", () => getVoiceBackendUrl());

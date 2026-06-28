@@ -85,7 +85,7 @@ def test_e2e_placeholder_endpoints() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["available"] is True
-    assert body["phase"] == 4
+    assert body["phase"] == 6
 
 
 def test_e2e_system_endpoints() -> None:
@@ -95,7 +95,7 @@ def test_e2e_system_endpoints() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["service"] == "axon-backend"
-    assert body["phase"] == 1
+    assert body["phase"] == 6
 
     # System status
     response = client.get("/api/v1/system/status")

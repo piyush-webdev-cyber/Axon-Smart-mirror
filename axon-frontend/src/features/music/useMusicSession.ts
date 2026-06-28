@@ -23,9 +23,6 @@ const MUSIC_EVENTS = [
 export function useMusicSession() {
   const setMusicState = useAppStore((s) => s.setMusicState);
   const setMusicError = useAppStore((s) => s.setMusicError);
-  const musicVoiceTick = useAppStore((s) => s.musicVoiceTick);
-  const pendingMusicQuery = useAppStore((s) => s.pendingMusicQuery);
-  const clearPendingMusicQuery = useAppStore((s) => s.clearPendingMusicQuery);
 
   const localProgressRef = useRef(0);
   const durationRef = useRef(0);
@@ -63,43 +60,16 @@ export function useMusicSession() {
     return () => unsubs.forEach((u) => u());
   }, [applyState]);
 
-  useEffect(() => {
-    if (!musicVoiceTick) return;
-
-    async function runVoiceAction() {
-      try {
-        if (pendingMusicQuery) {
-          const state = await musicApi.play({ query: pendingMusicQuery });
-          setMusicState(state);
-        } else {
-          const state = await musicApi.play({});
-          setMusicState(state);
-        }
-        setMusicError(null);
-      } catch (err) {
-        setMusicError(err instanceof Error ? err.message : "Could not play music");
-      } finally {
-        clearPendingMusicQuery();
-      }
-    }
-
-    void runVoiceAction();
-  }, [
-    musicVoiceTick,
-    pendingMusicQuery,
-    clearPendingMusicQuery,
-    setMusicError,
-    setMusicState,
-  ]);
-
   const playQuery = useCallback(
     async (query: string) => {
       try {
         const state = await musicApi.play({ query });
         setMusicState(state);
         setMusicError(null);
+        return state;
       } catch (err) {
         setMusicError(err instanceof Error ? err.message : "Song not found");
+        return null;
       }
     },
     [setMusicError, setMusicState],

@@ -41,7 +41,7 @@ export default defineConfig(({ mode }) => ({
     },
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:8010",
+        target: "http://127.0.0.1:18010",
         changeOrigin: true,
         ws: true,
         secure: false,
@@ -53,7 +53,7 @@ export default defineConfig(({ mode }) => ({
     host: true,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:8010",
+        target: "http://127.0.0.1:18010",
         changeOrigin: true,
         ws: true,
         secure: false,

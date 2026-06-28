@@ -1,4 +1,6 @@
 import { cn } from "@/utils/cn";
+import { LiveTranscript } from "@/features/voice/LiveTranscript";
+import { formatVoicePhaseLabel } from "@/features/voice/voiceStatusMessages";
 import { nativeVoiceClient } from "@/features/voice/native/nativeVoiceClient";
 import { useVoiceController } from "./useVoiceController";
 
@@ -31,40 +33,48 @@ function ConnectionDot({
 }
 
 /**
- * Always-visible voice debug captions — connection, heard text, and replies.
+ * Voice status panel — connection, live transcript, replies, and debug intent info.
  */
 export function VoiceCaptions() {
   const {
     state,
+    phase,
     micReady,
     wakeActive,
     listenPhrase,
     transcript,
+    interimTranscript,
+    transcriptFrozen,
+    confidence,
+    language,
+    intentDebug,
     reply,
     statusLine,
     backendConnected,
     audioStreaming,
     needsAudioUnlock,
+    debugVoice,
   } = useVoiceController();
 
   const isListening = state === "listening";
   const isProcessing = state === "processing";
   const isSpeaking = state === "speaking";
-  const showHeard = Boolean(transcript.trim());
+  const showHeard = Boolean(interimTranscript.trim() || transcript.trim());
   const showReply = Boolean(reply.trim());
 
   let modeHint = statusLine;
   if (!modeHint) {
-    if (!micReady) modeHint = "Allow microphone access when prompted";
+    if (!micReady) modeHint = "🎤 Microphone permission required.";
     else if (!backendConnected) modeHint = "Connecting to voice backend…";
     else if (needsAudioUnlock) modeHint = "Click anywhere once to enable wake word";
-    else if (isListening) modeHint = "Recording — speak your command now";
-    else if (isProcessing) modeHint = "Processing what you said…";
+    else if (phase === "listening" || phase === "recognizing") {
+      modeHint = formatVoicePhaseLabel(phase, listenPhrase);
+    } else if (isProcessing) modeHint = formatVoicePhaseLabel("processing", listenPhrase);
     else if (isSpeaking) modeHint = "Speaking response…";
-    else if (wakeActive && audioStreaming)
-      modeHint = `Listening for “${listenPhrase}” — say it now`;
-    else if (wakeActive) modeHint = `Waiting for mic stream…`;
-    else modeHint = `Say “${listenPhrase}” or tap the mic`;
+    else if (wakeActive && audioStreaming) {
+      modeHint = formatVoicePhaseLabel("ready", listenPhrase);
+    } else if (wakeActive) modeHint = "Waiting for mic stream…";
+    else modeHint = formatVoicePhaseLabel("ready", listenPhrase);
   }
 
   return (
@@ -77,7 +87,7 @@ export function VoiceCaptions() {
       <div
         className={cn(
           "glass-surface rounded-2xl border border-content/10 px-4 py-3",
-          "flex flex-col gap-2 text-left shadow-lg",
+          "flex flex-col gap-2 text-left shadow-lg transition-opacity duration-300",
         )}
       >
         <div className="flex items-center gap-2 text-sm text-content">
@@ -108,16 +118,26 @@ export function VoiceCaptions() {
 
         {isListening && !showHeard && (
           <p className="text-sm text-primary/90 animate-pulse">
-            🎤 Mic open — waiting for speech…
+            🎤 Listening…
           </p>
         )}
 
         {showHeard && (
-          <div className="rounded-xl bg-black/25 px-3 py-2">
+          <div className="rounded-xl bg-black/25 px-3 py-2 transition-opacity duration-300">
             <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-content-muted">
-              You said
+              {interimTranscript.trim() && !transcriptFrozen ? "Hearing" : "You said"}
             </p>
-            <p className="text-base leading-snug text-content">{transcript}</p>
+            <LiveTranscript
+              interimText={interimTranscript}
+              finalText={transcript}
+              frozen={transcriptFrozen}
+              className="text-left"
+            />
+            {debugVoice && confidence != null && (
+              <p className="mt-1 text-xs text-content-muted">
+                Confidence: {(confidence * 100).toFixed(0)}% · {language}
+              </p>
+            )}
           </div>
         )}
 
@@ -126,7 +146,18 @@ export function VoiceCaptions() {
             <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-primary/80">
               Axon
             </p>
-            <p className="text-base leading-snug text-content">{reply}</p>
+            <p className="text-base leading-snug text-content line-clamp-2">{reply}</p>
+          </div>
+        )}
+
+        {debugVoice && intentDebug && (
+          <div className="rounded-xl bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-400/30">
+            <p className="font-semibold uppercase tracking-wider text-amber-200/90">
+              Detected Intent
+            </p>
+            <p className="font-mono text-sm">{intentDebug.intent}</p>
+            <p>Confidence: {intentDebug.confidence.toFixed(2)}</p>
+            <p>Matched phrase: {intentDebug.matchedPhrase || "—"}</p>
           </div>
         )}
 

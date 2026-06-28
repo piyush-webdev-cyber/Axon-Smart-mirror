@@ -11,6 +11,13 @@ const TARGET_SAMPLE_RATE = 16_000;
 type EventHandler = (event: NativeVoiceEvent) => void;
 
 async function resolveVoiceBackendBase(): Promise<string | null> {
+  if (typeof window !== "undefined") {
+    const runtime = (window as Window & { axonRuntime?: { voiceBackendUrl?: string } }).axonRuntime;
+    if (runtime?.voiceBackendUrl) {
+      return runtime.voiceBackendUrl.replace(/\/$/, "");
+    }
+  }
+
   const fromShell = window.axonVoice?.getVoiceBackendUrl?.();
   const resolved = fromShell instanceof Promise ? await fromShell : fromShell;
 
@@ -22,6 +29,13 @@ async function resolveVoiceBackendBase(): Promise<string | null> {
 }
 
 async function resolveVoiceWsUrl(): Promise<string | null> {
+  if (typeof window !== "undefined") {
+    const runtime = (window as Window & { axonRuntime?: { voiceWsUrl?: string } }).axonRuntime;
+    if (runtime?.voiceWsUrl) {
+      return `${runtime.voiceWsUrl.replace(/\/ws\/?$/, "")}/voice/desktop/ws`;
+    }
+  }
+
   const base = await resolveVoiceBackendBase();
   if (base) {
     if (!base.includes("127.0.0.1") && !base.includes("localhost")) {
@@ -39,7 +53,7 @@ async function resolveVoiceWsUrl(): Promise<string | null> {
   }
 
   if (import.meta.env.DEV) {
-    return "ws://127.0.0.1:8010/api/v1/voice/desktop/ws";
+    return "ws://127.0.0.1:18010/api/v1/voice/desktop/ws";
   }
 
   return null;
@@ -69,6 +83,28 @@ class NativeVoiceClient {
   private lastPcmSentAt = 0;
   private unlockBound = false;
   private piperKnownUnavailable = false;
+  private ttsProbeDone = false;
+
+  /** Skip Piper HTTP when the local backend reports browser-only TTS. */
+  private async probeTtsAvailability(): Promise<void> {
+    if (this.ttsProbeDone) return;
+    this.ttsProbeDone = true;
+
+    try {
+      const { mirrorApiBase } = await import("@/utils/apiRouting");
+      const statusUrl = `${mirrorApiBase()}/voice/status`;
+      const res = await fetch(statusUrl);
+      if (!res.ok) {
+        this.piperKnownUnavailable = true;
+        return;
+      }
+      const status = (await res.json()) as { nativeTts?: boolean; native_tts?: boolean; tts?: string };
+      const nativeTts = status.nativeTts ?? status.native_tts ?? status.tts === "piper";
+      if (!nativeTts) this.piperKnownUnavailable = true;
+    } catch {
+      this.piperKnownUnavailable = true;
+    }
+  }
   private localMicActive = false;
 
   isConnected(): boolean {
@@ -155,6 +191,8 @@ class NativeVoiceClient {
         return false;
       }
 
+      await this.probeTtsAvailability();
+
       await this.waitForBackendStatus(2500);
 
       if (this.localMicActive) {
@@ -228,9 +266,10 @@ class NativeVoiceClient {
     this.ws = null;
   }
 
-  sendControl(action: string): void {
-    if (this.ws?.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify({ type: "control", action }));
+  sendControl(action: string, payload: Record<string, unknown> = {}): boolean {
+    if (this.ws?.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify({ type: "control", action, ...payload }));
+    return true;
   }
 
   pauseWake(): void {
@@ -241,13 +280,40 @@ class NativeVoiceClient {
     this.sendControl("reset");
   }
 
-  startSttCapture(): void {
+  async startSttCapture(context: Record<string, unknown> = {}): Promise<boolean> {
     void this.unlockAudio();
-    this.sendControl("start_stt");
+
+    const base = await resolveVoiceBackendBase();
+    if (base) {
+      try {
+        const res = await fetch(`${base}/api/v1/voice/capture/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(context),
+        });
+        if (res.ok) return true;
+      } catch {
+        /* fall through to WS control */
+      }
+    }
+
+    if (this.sendControl("start_stt", context)) return true;
+
+    this.emit({ type: "error", message: "Voice backend not connected." });
+    return false;
   }
 
-  stopSttCapture(): void {
-    this.sendControl("stop_stt");
+  async stopSttCapture(): Promise<boolean> {
+    const base = await resolveVoiceBackendBase();
+    if (base) {
+      try {
+        const res = await fetch(`${base}/api/v1/voice/capture/stop`, { method: "POST" });
+        if (res.ok) return true;
+      } catch {
+        /* fall through */
+      }
+    }
+    return this.sendControl("stop_stt");
   }
 
   resetWake(): void {
@@ -263,7 +329,7 @@ class NativeVoiceClient {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
       });
-      if (res.status === 503) {
+      if (res.status === 503 || res.status === 204) {
         this.piperKnownUnavailable = true;
         return null;
       }
@@ -302,6 +368,7 @@ class NativeVoiceClient {
         await this._playWavBuffer(wav);
         return;
       }
+      this.piperKnownUnavailable = true;
     }
 
     await speakWithBrowser(trimmed);

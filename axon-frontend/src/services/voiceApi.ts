@@ -36,11 +36,11 @@ export async function processVoiceTranscript(
     throw new Error("Voice processing failed.");
   }
 
-  const data = (await response.json()) as VoiceProcessResult;
+  const data = (await response.json()) as VoiceProcessResult & { music_query?: string | null };
   return {
     reply: data.reply,
     action: data.action ?? null,
-    musicQuery: (data as VoiceProcessResult).musicQuery ?? null,
+    musicQuery: data.musicQuery ?? data.music_query ?? null,
     ...(data.source ? { source: data.source } : {}),
   };
 }

@@ -6,7 +6,7 @@ export type NativeVoiceEvent =
   | { type: "wakeword_detected"; wakeWord: string }
   | { type: "recording_started" }
   | { type: "processing_started"; transcript?: string }
-  | { type: "response_ready"; reply: string; action?: string | null; source?: string }
+  | { type: "response_ready"; reply: string; action?: string | null; musicQuery?: string | null; source?: string }
   | { type: "speaking_started"; text: string }
   | { type: "tts_text"; text: string }
   | { type: "listening_resumed"; wakeWord: string; listenPhrase?: string }
@@ -37,6 +37,11 @@ declare global {
   interface Window {
     axonShell?: AxonShellAPI;
     axonVoice?: AxonVoiceAPI;
+    axonRuntime?: {
+      voiceBackendUrl: string;
+      voiceApiBase: string;
+      voiceWsUrl: string;
+    };
   }
 }
 

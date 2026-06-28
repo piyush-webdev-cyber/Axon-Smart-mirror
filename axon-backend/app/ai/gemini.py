@@ -92,9 +92,13 @@ class GeminiClient:
         system = (
             "You are Nexa, the voice assistant for the Axon Smart Mirror. "
             "Respond in JSON only with keys: reply (short spoken answer, 1-3 sentences), "
-            "action (one of: open_camera, open_gallery, open_interview, play_music, go_home, "
-            "take_photo, show_gallery_qr, delete_photo, "
+            "action (one of: open_camera, close_camera, open_gallery, open_interview, "
+            "open_music, close_music, play_music, pause_music, resume_music, stop_music, "
+            "next_track, previous_track, volume_up, volume_down, mute_music, unmute_music, "
+            "shuffle_music, repeat_music, go_home, open_settings, open_weather, refresh_weather, "
+            "take_photo, show_gallery_qr, delete_photo, logout, "
             "or null if no navigation is needed). "
+            "Optional music_query string when action is play_music. "
             "Keep replies conversational and brief for text-to-speech."
         )
         name_hint = f" The user's name is {user_name}." if user_name else ""

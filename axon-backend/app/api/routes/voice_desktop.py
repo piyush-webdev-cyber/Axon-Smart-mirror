@@ -116,6 +116,27 @@ async def voice_debug() -> dict[str, object]:
     return get_wakeword_debug_info()
 
 
+@router.post("/capture/start")
+async def capture_start(body: dict[str, object] | None = None) -> dict[str, object]:
+    """Start manual command capture (mic tap). Prefer this over WS control on Windows."""
+    pipeline = get_voice_pipeline()
+    if not pipeline.running:
+        await pipeline.start()
+    payload = body or {}
+    events = await pipeline.handle_control("start_stt", payload)
+    await _broadcast_events(events)
+    return {"ok": True, "state": pipeline.state.value}
+
+
+@router.post("/capture/stop")
+async def capture_stop() -> dict[str, object]:
+    """Stop manual capture and run STT + offline intent."""
+    pipeline = get_voice_pipeline()
+    events = await pipeline.handle_control("stop_stt", None)
+    await _broadcast_events(events)
+    return {"ok": True, "state": pipeline.state.value}
+
+
 @router.post("/start")
 async def voice_pipeline_start() -> dict[str, object]:
     result = await bootstrap_desktop_voice()
@@ -167,7 +188,7 @@ async def voice_events_ws(websocket: WebSocket) -> None:
             if payload.get("type") != "control":
                 continue
             action = str(payload.get("action", ""))
-            events = await pipeline.handle_control(action)
+            events = await pipeline.handle_control(action, payload if isinstance(payload, dict) else None)
             for event in events:
                 await websocket.send_json(event)
     except WebSocketDisconnect:
@@ -256,7 +277,8 @@ async def voice_desktop_ws(websocket: WebSocket) -> None:
                 continue
 
             action = str(payload.get("action", ""))
-            events = await pipeline.handle_control(action)
+            logger.info("[VOICE] WS control action=%s", action)
+            events = await pipeline.handle_control(action, payload if isinstance(payload, dict) else None)
             for event in events:
                 await websocket.send_json(event)
     except WebSocketDisconnect:
@@ -274,10 +296,10 @@ async def voice_desktop_ws(websocket: WebSocket) -> None:
 
 @router.post("/tts")
 async def synthesize_speech(request: VoiceTtsRequest) -> Response:
-    """Synthesize speech with Piper; returns audio/wav."""
+    """Synthesize speech with Piper; returns audio/wav or 204 when using browser TTS."""
     tts = get_tts_service(settings.voice_piper_bin or None, settings.voice_piper_model or None)
     if not tts.available:
-        return Response(status_code=503, content="TTS engine unavailable")
+        return Response(status_code=204)
 
     wav = tts.synthesize_wav(request.text)
     if not wav:

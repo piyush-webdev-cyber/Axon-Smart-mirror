@@ -7,12 +7,18 @@ import {
   type SpeechRecognitionEvent,
   type SpeechRecognitionInstance,
 } from "./speechRecognition";
-import { isNativeVoiceEngine } from "@/features/voice/native/voiceEngineMode";
+import { isNativeVoiceEngine, isElectronRuntime } from "@/features/voice/native/voiceEngineMode";
 import { nativeSttAdapter } from "@/features/voice/native/nativeSttAdapter";
 
+export interface SttPartialResult {
+  text: string;
+  confidence?: number;
+  language?: string;
+}
+
 export interface SttCallbacks {
-  onInterim: (text: string) => void;
-  onFinal: (text: string) => void;
+  onInterim: (result: SttPartialResult) => void;
+  onFinal: (result: SttPartialResult) => void;
   onError: (message: string) => void;
   onEnd: () => void;
   onStart?: () => void;
@@ -21,13 +27,19 @@ export interface SttCallbacks {
 export interface SttStartOptions {
   /** Backend already capturing after wake-word detection. */
   fromWakeWord?: boolean;
+  /** Use browser Web Speech even in Electron native mode (manual mic tap). */
+  forceBrowser?: boolean;
 }
 
 export class SttSession {
   private recognition: SpeechRecognitionInstance | null = null;
   private running = false;
+  private browserMode = false;
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly maxListenMs = 8000;
+  private readonly maxListenMs = 10000;
+  private readonly silenceMs = 2200;
+  private restartAttempts = 0;
+  private readonly maxRestartAttempts = 8;
 
   isSupported(): boolean {
     if (isNativeVoiceEngine()) return nativeSttAdapter.isSupported();
@@ -35,7 +47,8 @@ export class SttSession {
   }
 
   start(callbacks: SttCallbacks, options?: SttStartOptions): void {
-    if (isNativeVoiceEngine()) {
+    if (isNativeVoiceEngine() && !options?.forceBrowser) {
+      this.browserMode = false;
       nativeSttAdapter.start(callbacks, options);
       return;
     }
@@ -46,8 +59,10 @@ export class SttSession {
       return;
     }
 
-    this.stop();
+    this.stopBrowserOnly();
+    this.browserMode = true;
     this.running = true;
+    this.restartAttempts = 0;
     this.recognition = new Ctor();
     this.recognition.continuous = true;
     this.recognition.interimResults = true;
@@ -61,43 +76,80 @@ export class SttSession {
     this.recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interim = "";
       let finalText = "";
+      let confidence: number | undefined;
+      const language = this.recognition?.lang ?? "en-US";
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
-        const transcript = result?.[0]?.transcript ?? "";
+        const alt = result?.[0];
+        const transcript = alt?.transcript ?? "";
         if (result?.isFinal) {
           finalText += transcript;
+          if (alt?.confidence != null && alt.confidence > 0) {
+            confidence = alt.confidence;
+          }
         } else {
           interim += transcript;
+          if (alt?.confidence != null && alt.confidence > 0) {
+            confidence = alt.confidence;
+          }
         }
       }
 
       if (interim.trim()) {
-        callbacks.onInterim(interim.trim());
+        callbacks.onInterim({
+          text: interim.trim(),
+          ...(confidence != null ? { confidence } : {}),
+          language,
+        });
         this.resetSilenceTimer(callbacks);
       }
       if (finalText.trim()) {
-        callbacks.onFinal(finalText.trim());
+        callbacks.onFinal({
+          text: finalText.trim(),
+          ...(confidence != null ? { confidence } : {}),
+          language,
+        });
         this.resetSilenceTimer(callbacks);
       }
     };
 
     this.recognition.onerror = (event) => {
       if (event.error === "not-allowed") {
+        this.running = false;
         callbacks.onError("Microphone permission denied.");
         return;
       }
+      if (event.error === "no-speech" && isElectronRuntime() && this.running) {
+        return;
+      }
       if (event.error !== "aborted" && event.error !== "no-speech") {
+        this.running = false;
         callbacks.onError(event.error || "Speech recognition failed.");
       }
     };
 
     this.recognition.onend = () => {
       this.clearSilenceTimer();
-      if (this.running) {
-        this.running = false;
-        callbacks.onEnd();
+      if (!this.running) return;
+
+      if (isElectronRuntime() && this.restartAttempts < this.maxRestartAttempts) {
+        this.restartAttempts += 1;
+        window.setTimeout(() => {
+          if (!this.running || !this.recognition) return;
+          try {
+            this.recognition.start();
+          } catch {
+            this.running = false;
+            callbacks.onEnd();
+          }
+        }, 120);
+        return;
       }
+
+      this.running = false;
+      this.browserMode = false;
+      callbacks.onEnd();
     };
 
     try {
@@ -115,7 +167,7 @@ export class SttSession {
         this.stop();
         callbacks.onEnd();
       }
-    }, 1800);
+    }, this.silenceMs);
   }
 
   private clearSilenceTimer(): void {
@@ -126,12 +178,20 @@ export class SttSession {
   }
 
   stop(): void {
-    if (isNativeVoiceEngine()) {
-      nativeSttAdapter.stop();
+    if (this.browserMode) {
+      this.stopBrowserOnly();
       return;
     }
 
+    if (isNativeVoiceEngine()) {
+      nativeSttAdapter.stop();
+    }
+  }
+
+  private stopBrowserOnly(): void {
     this.running = false;
+    this.browserMode = false;
+    this.restartAttempts = 0;
     this.clearSilenceTimer();
     try {
       this.recognition?.stop();

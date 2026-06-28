@@ -123,9 +123,8 @@ class ConnectionManager:
 
     def _register_default_handlers(self) -> None:
         async def _on_ping(websocket: WebSocket, _payload: dict) -> None:
-            logger.info("WS PING | client=%s", websocket.client)
+            logger.debug("WS PING | client=%s", websocket.client)
             await self.send(websocket, WsEvent.PONG)
-            logger.info("WS PONG | client=%s", websocket.client)
 
         self.register_handler(WsEvent.PING, _on_ping)
 

@@ -1,4 +1,5 @@
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
+import { ROUTES } from "@/constants/routes";
 import { WeatherWidget } from "@/features/weather/WeatherWidget";
 import { MicButton } from "@/features/voice/MicButton";
 import { VoiceCaptions } from "@/features/voice/VoiceCaptions";
@@ -21,6 +22,8 @@ import { cn } from "@/utils/cn";
  */
 export function MirrorLayout() {
   const deviceLinkUiActive = useAppStore((s) => s.deviceLinkUiActive);
+  const location = useLocation();
+  const hideWeather = location.pathname === ROUTES.music;
 
   return (
     <div className="relative h-full w-full">
@@ -35,15 +38,15 @@ export function MirrorLayout() {
           <div className="absolute left-[62%] top-[72%] h-[76vmin] w-[76vmin] -translate-x-1/2 -translate-y-1/2 rounded-full bg-glow-radial blur-3xl animate-aurora-drift gpu" />
         </div>
 
-        {/* Top bar: weather (right) */}
-        <header className="flex items-start justify-end gap-6">
-          <WeatherWidget />
+        {/* Top bar: weather hidden on music to avoid overlap */}
+        <header className={cn("flex items-start justify-end gap-6", hideWeather && "min-h-0")}>
+          {!hideWeather && <WeatherWidget />}
         </header>
 
         {/* Center: dynamic content area, weighted toward the assistant below */}
         <main
           className={cn(
-            "relative flex min-h-0 w-full flex-1 items-center justify-center overflow-visible",
+            "relative flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden",
           )}
         >
           <Outlet />

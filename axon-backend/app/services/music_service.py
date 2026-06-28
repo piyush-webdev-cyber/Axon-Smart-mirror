@@ -46,6 +46,7 @@ class MusicService:
         session: dict[str, Any] = {
             "current": None,
             "queue": [],
+            "history": [],
             "is_playing": False,
             "volume": 70,
             "shuffle": False,
@@ -113,6 +114,17 @@ class MusicService:
             "thumbnail_url": track.thumbnail_url,
             "duration_sec": track.duration_sec,
         }
+
+    def _push_history(self, session: dict[str, Any], track: dict | None) -> None:
+        if not track:
+            return
+        history: list[dict] = session.setdefault("history", [])
+        video_id = track.get("video_id")
+        if history and history[-1].get("video_id") == video_id:
+            return
+        history.append(deepcopy(track))
+        if len(history) > 50:
+            history.pop(0)
 
     async def _broadcast(self, user_id: str, event: WsEvent, extra: dict | None = None) -> None:
         state = await self.get_state(user_id)
@@ -206,6 +218,9 @@ class MusicService:
                 selected = self._track_to_dict(rec[0])
                 session["queue"] = [self._track_to_dict(t) for t in rec[1:]]
 
+        if session["current"] and session["current"].get("video_id") != selected.get("video_id"):
+            self._push_history(session, session["current"])
+
         session["current"] = selected
         session["is_playing"] = True
         session["position_sec"] = 0.0
@@ -262,6 +277,9 @@ class MusicService:
             await self._broadcast(user_id, WsEvent.MUSIC_FINISHED)
             return await self.get_state(user_id)
 
+        if session["current"]:
+            self._push_history(session, session["current"])
+
         session["current"] = nxt
         session["is_playing"] = True
         session["position_sec"] = 0.0
@@ -272,8 +290,29 @@ class MusicService:
 
     async def previous_track(self, user_id: str) -> dict:
         session = await self._load_session(user_id)
-        session["position_sec"] = 0.0
+
+        if session["position_sec"] > 3 and session["current"]:
+            session["position_sec"] = 0.0
+            session["is_playing"] = True
+            await self._persist(user_id)
+            await self._broadcast(user_id, WsEvent.MUSIC_STARTED)
+            return await self.get_state(user_id)
+
+        history: list[dict] = session.get("history") or []
+        if history:
+            if session["current"]:
+                session["queue"].insert(0, session["current"])
+            prev = history.pop()
+            session["history"] = history
+            session["current"] = prev
+            session["position_sec"] = 0.0
+            session["is_playing"] = True
+            await self._persist(user_id)
+            await self._broadcast(user_id, WsEvent.MUSIC_STARTED, {"track": prev})
+            return await self.get_state(user_id)
+
         if session["current"]:
+            session["position_sec"] = 0.0
             session["is_playing"] = True
             await self._persist(user_id)
             await self._broadcast(user_id, WsEvent.MUSIC_STARTED)

@@ -14,12 +14,12 @@ function onEvent(event: NativeVoiceEvent): void {
   if (!running || !callbacks) return;
 
   if (event.type === "stt_interim") {
-    callbacks.onInterim(event.text);
+    callbacks.onInterim({ text: event.text, language: "en" });
     return;
   }
 
   if (event.type === "stt_final") {
-    callbacks.onFinal(event.text);
+    callbacks.onFinal({ text: event.text, language: "en" });
     return;
   }
 

@@ -3,6 +3,7 @@
  */
 export type VoiceAction =
   | "open_camera"
+  | "close_camera"
   | "open_gallery"
   | "open_interview"
   | "open_music"
@@ -20,9 +21,13 @@ export type VoiceAction =
   | "shuffle_music"
   | "repeat_music"
   | "go_home"
+  | "open_settings"
+  | "open_weather"
+  | "refresh_weather"
   | "take_photo"
   | "show_gallery_qr"
   | "delete_photo"
+  | "logout"
   | null;
 
 export interface VoiceProcessResult {

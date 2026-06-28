@@ -58,7 +58,7 @@ class SttService:
             model=self._model_size,
         )
 
-    def transcribe_pcm16(self, pcm: bytes) -> str:
+    def transcribe_pcm16(self, pcm: bytes, *, partial: bool = False) -> str:
         """Transcribe mono PCM16 audio at 16 kHz."""
         if not self._model or not pcm:
             return ""
@@ -73,11 +73,12 @@ class SttService:
             segments, _info = self._model.transcribe(
                 audio,
                 language="en",
-                vad_filter=True,
+                vad_filter=not partial,
                 beam_size=1,
             )
             text = " ".join(segment.text.strip() for segment in segments).strip()
-            logger.info("[STT] Transcript Received: %s", text or "(empty)")
+            if not partial:
+                logger.info("[STT] Transcript Received: %s", text or "(empty)")
             return text
         except Exception as exc:  # noqa: BLE001
             logger.exception("[STT] Transcription failed: %s", exc)

@@ -64,6 +64,7 @@ async def voice_status() -> VoiceStatusResponse:
 
     native_any = wake.available or stt.available or tts.available
     return VoiceStatusResponse(
+        phase=settings.phase,
         stt="faster-whisper" if stt.available else "browser",
         tts="piper" if tts.available else "browser",
         native_wakeword=wake.available,

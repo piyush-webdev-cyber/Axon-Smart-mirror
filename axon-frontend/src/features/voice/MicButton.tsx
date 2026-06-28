@@ -5,7 +5,10 @@ import {
   SAY_WAKE_WORD_LABEL,
   WAKE_DETECTED_LABEL,
 } from "@/constants/voiceConfig";
+import { LiveTranscript } from "@/features/voice/LiveTranscript";
+import { formatVoicePhaseLabel } from "@/features/voice/voiceStatusMessages";
 import type { VoiceState } from "@/types/voice";
+import type { VoicePhase } from "@/types/voiceSpeech";
 import { useVoiceController } from "./useVoiceController";
 
 const STATE_LABEL: Record<VoiceState, string> = {
@@ -17,19 +20,39 @@ const STATE_LABEL: Record<VoiceState, string> = {
 
 function getLabel(
   state: VoiceState,
+  phase: VoicePhase,
   micReady: boolean,
   wakeActive: boolean,
   wakePulse: boolean,
   listenPhrase: string,
+  statusLine: string,
 ): string {
+  if (statusLine && (state !== "idle" || phase === "error")) {
+    return statusLine;
+  }
   if (!micReady && state === "idle") {
     return "Allow microphone access";
   }
   if (wakePulse && state === "idle") {
     return WAKE_DETECTED_LABEL;
   }
+  if (phase === "ready" && wakeActive && state === "idle") {
+    return formatVoicePhaseLabel("ready", listenPhrase);
+  }
+  if (phase === "listening" || (state === "listening" && phase === "recognizing")) {
+    return formatVoicePhaseLabel(phase === "recognizing" ? "recognizing" : "listening", listenPhrase);
+  }
+  if (phase === "processing" || state === "processing") {
+    return formatVoicePhaseLabel("processing", listenPhrase);
+  }
+  if (phase === "executing") {
+    return formatVoicePhaseLabel("executing", listenPhrase);
+  }
+  if (phase === "completed") {
+    return statusLine || formatVoicePhaseLabel("completed", listenPhrase);
+  }
   if (wakeActive && state === "idle") {
-    return `Listening for ${listenPhrase}`;
+    return formatVoicePhaseLabel("ready", listenPhrase);
   }
   if (state === "idle") {
     return `Say ${listenPhrase}`;
@@ -55,8 +78,28 @@ const WAVE_BARS = [
  * only for 60 FPS on the Pi.
  */
 export function MicButton() {
-  const { state, micReady, wakeActive, wakePulse, listenPhrase, press } = useVoiceController();
-  const label = getLabel(state, micReady, wakeActive, wakePulse, listenPhrase);
+  const {
+    state,
+    phase,
+    micReady,
+    wakeActive,
+    wakePulse,
+    listenPhrase,
+    transcript,
+    interimTranscript,
+    transcriptFrozen,
+    statusLine,
+    press,
+  } = useVoiceController();
+  const label = getLabel(
+    state,
+    phase,
+    micReady,
+    wakeActive,
+    wakePulse,
+    listenPhrase,
+    statusLine,
+  );
 
   const isIdle = state === "idle";
   const isListening = state === "listening";
@@ -65,6 +108,8 @@ export function MicButton() {
   const isActive = isListening || isSpeaking;
   const isArmed = micReady && wakeActive && isIdle;
   const isWakeFlash = wakePulse && isIdle;
+  const showTranscriptStrip =
+    isListening || isProcessing || phase === "executing" || phase === "completed";
 
   return (
     <div className="flex flex-col items-center gap-2">
@@ -207,14 +252,29 @@ export function MicButton() {
       </button>
 
       <span
-        key={`${state}-${micReady}`}
+        key={`${state}-${phase}-${micReady}`}
         className={cn(
-          "text-caption animate-fade-in transition-colors",
+          "text-caption animate-fade-in transition-colors duration-300",
           isActive || isArmed ? "text-content" : "text-content-muted",
         )}
       >
         {label}
       </span>
+
+      {showTranscriptStrip && (
+        <div className="flex min-h-[2.75rem] w-full max-w-md flex-col items-center justify-center px-4 transition-opacity duration-300">
+          <LiveTranscript
+            interimText={interimTranscript}
+            finalText={transcript}
+            frozen={transcriptFrozen}
+          />
+          {!interimTranscript.trim() && !transcript.trim() && isListening && (
+            <p className="text-center text-sm text-content-muted animate-pulse">
+              🎤 Listening…
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

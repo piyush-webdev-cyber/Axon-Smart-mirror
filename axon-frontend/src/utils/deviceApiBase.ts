@@ -1,14 +1,16 @@
 /**
  * Runtime API/WS base URLs for device linking.
- * Mirror and phone MUST share the same backend when QR points at Vercel LinkPage.
+ * Device QR + phone linking use Railway when hosted; music/photos use mirrorApiBase().
  */
 
 import { env } from "./env";
 import {
   RAILWAY_API_BASE,
   RAILWAY_WS_URL,
+  isElectronShell,
   usesHostedDeviceLink,
 } from "./deviceLinkConfig";
+import { mirrorWsUrl } from "./apiRouting";
 
 export { RAILWAY_API_BASE, RAILWAY_WS_URL } from "./deviceLinkConfig";
 
@@ -17,37 +19,52 @@ export function usesSharedRailwayBackend(): boolean {
   return usesHostedDeviceLink();
 }
 
-/**
- * REST base for device linking.
- * - Phone on Vercel → same-origin /api/v1 (vercel.json proxy → Railway)
- * - Electron / hosted QR → Railway directly
- * - Local LAN dev (VITE_DEVICE_LINK_LOCAL) → env.apiBaseUrl
- */
+function isVercelHost(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.location.hostname.includes("vercel.app")
+  );
+}
+
+/** REST base for device linking only (QR codes, link status). */
 export function deviceApiBase(): string {
   if (typeof window === "undefined") {
     return env.apiBaseUrl;
   }
 
-  if (window.location.hostname.includes("vercel.app")) {
+  if (isVercelHost()) {
     return "/api/v1";
   }
 
-  if (usesSharedRailwayBackend()) {
+  // Electron + hosted QR: phones link via Railway/Vercel — keep device API on Railway.
+  if (isElectronShell() && usesHostedDeviceLink()) {
+    return RAILWAY_API_BASE;
+  }
+
+  if (usesHostedDeviceLink()) {
     return RAILWAY_API_BASE;
   }
 
   return env.apiBaseUrl;
 }
 
-/** WebSocket URL aligned with deviceApiBase for device.linked events. */
+/** WebSocket for device.linked events — Railway when hosted, else mirror WS. */
 export function deviceWsUrl(): string {
   if (typeof window === "undefined") {
     return env.wsUrl;
   }
 
-  if (usesSharedRailwayBackend()) {
+  if (isVercelHost()) {
+    return mirrorWsUrl();
+  }
+
+  if (isElectronShell() && usesHostedDeviceLink()) {
     return RAILWAY_WS_URL;
   }
 
-  return env.wsUrl;
+  if (usesHostedDeviceLink()) {
+    return RAILWAY_WS_URL;
+  }
+
+  return mirrorWsUrl();
 }

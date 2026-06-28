@@ -11,6 +11,7 @@ from app.core.voice_config import WAKE_WORD
 
 VoiceAction = Literal[
     "open_camera",
+    "close_camera",
     "open_gallery",
     "open_interview",
     "open_music",
@@ -28,9 +29,13 @@ VoiceAction = Literal[
     "shuffle_music",
     "repeat_music",
     "go_home",
+    "open_settings",
+    "open_weather",
+    "refresh_weather",
     "take_photo",
     "show_gallery_qr",
     "delete_photo",
+    "logout",
 ] | None
 
 
@@ -51,7 +56,7 @@ class VoiceProcessResponse(CamelModel):
 class VoiceStatusResponse(CamelModel):
     feature: str = "Voice Assistant"
     available: bool = True
-    phase: int = 4
+    phase: int = 6
     wake_word: str = WAKE_WORD
     stt: str = "browser"
     tts: str = "browser"

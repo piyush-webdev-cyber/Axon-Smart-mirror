@@ -2,11 +2,16 @@ const { spawn, execSync } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
 const http = require("node:http");
+const net = require("node:net");
 
 /** @type {import("node:child_process").ChildProcess | null} */
 let voiceProcess = null;
 /** True when this Electron session spawned the backend (safe to kill on quit). */
 let voiceProcessOwned = false;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function resolveBackendDir() {
   return path.resolve(__dirname, "../../axon-backend");
@@ -80,6 +85,23 @@ function checkVoiceHealth(url) {
   });
 }
 
+/** Require phase 6+ so we never reuse an old voice-only backend missing music routes. */
+function checkBackendCapabilities(url) {
+  return httpGetJson(`${url}/api/v1/system/info`, 5000).then((data) => {
+    if (!data) return false;
+    const phase = Number(data.phase ?? 0);
+    return phase >= 6;
+  });
+}
+
+async function isBackendUsable(url) {
+  const [voiceOk, capable] = await Promise.all([
+    checkVoiceHealth(url),
+    checkBackendCapabilities(url),
+  ]);
+  return voiceOk && capable;
+}
+
 function waitForHealth(url, timeoutMs = 120_000) {
   const started = Date.now();
   return new Promise((resolve, reject) => {
@@ -89,7 +111,7 @@ function waitForHealth(url, timeoutMs = 120_000) {
       if (pending) return;
       pending = true;
       try {
-        const healthy = await checkVoiceHealth(url);
+        const healthy = await isBackendUsable(url);
         if (healthy) {
           resolve(true);
           return;
@@ -108,47 +130,158 @@ function waitForHealth(url, timeoutMs = 120_000) {
   });
 }
 
-function freePort(port) {
-  if (process.platform !== "win32") return;
+/** PIDs listening on TCP port (Windows: 0.0.0.0:8010 and 127.0.0.1:8010 can differ). */
+function listListeningPids(port) {
+  const pids = new Set();
+  const portSuffix = `:${port}`;
+
+  if (process.platform === "win32") {
+    try {
+      const output = execSync("netstat -ano -p tcp", { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
+      for (const line of output.split("\n")) {
+        if (!line.includes("LISTENING")) continue;
+        const parts = line.trim().split(/\s+/);
+        if (parts.length < 5 || parts[0] !== "TCP") continue;
+        const localAddress = parts[1] || "";
+        if (!localAddress.endsWith(portSuffix)) continue;
+        const pid = parts[parts.length - 1];
+        if (pid && /^\d+$/.test(pid) && pid !== "0") pids.add(pid);
+      }
+    } catch {
+      /* ignore */
+    }
+    return pids;
+  }
 
   try {
-    const output = execSync(`netstat -ano | findstr :${port}`, { encoding: "utf8" });
-    const pids = new Set();
-    for (const line of output.split("\n")) {
-      if (!line.includes("LISTENING")) continue;
-      const parts = line.trim().split(/\s+/);
-      const pid = parts[parts.length - 1];
-      if (pid && pid !== "0") pids.add(pid);
-    }
-    for (const pid of pids) {
-      if (voiceProcess && String(voiceProcess.pid) === pid) continue;
-      try {
-        execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore" });
-        // eslint-disable-next-line no-console
-        console.info(`[axon-electron] Freed port ${port} (PID ${pid})`);
-      } catch {
-        /* ignore */
-      }
+    const output = execSync(`lsof -ti tcp:${port} -sTCP:LISTEN`, { encoding: "utf8" });
+    for (const pid of output.split("\n")) {
+      const trimmed = pid.trim();
+      if (trimmed && /^\d+$/.test(trimmed)) pids.add(trimmed);
     }
   } catch {
-    /* port already free */
+    /* ignore */
+  }
+  return pids;
+}
+
+function killPid(pid) {
+  try {
+    if (process.platform === "win32") {
+      execSync(`taskkill /F /PID ${pid} /T`, { stdio: "ignore" });
+    } else {
+      execSync(`kill -9 ${pid}`, { stdio: "ignore" });
+    }
+    // eslint-disable-next-line no-console
+    console.info(`[axon-electron] Freed port listener (PID ${pid})`);
+    return true;
+  } catch {
+    return false;
   }
 }
 
-async function startVoiceServer(port = 8010) {
+function stopOwnedVoiceProcess() {
+  if (!voiceProcess || voiceProcess.exitCode !== null) {
+    voiceProcess = null;
+    voiceProcessOwned = false;
+    return;
+  }
+  try {
+    if (process.platform === "win32") {
+      execSync(`taskkill /F /PID ${voiceProcess.pid} /T`, { stdio: "ignore" });
+    } else {
+      voiceProcess.kill("SIGKILL");
+    }
+  } catch {
+    try {
+      voiceProcess.kill("SIGKILL");
+    } catch {
+      /* ignore */
+    }
+  }
+  voiceProcess = null;
+  voiceProcessOwned = false;
+}
+
+/** True when nothing is bound to 127.0.0.1:port. */
+function isPortAvailable(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.unref();
+    server.once("error", () => resolve(false));
+    server.listen({ port, host: "127.0.0.1", exclusive: true }, () => {
+      server.close(() => resolve(true));
+    });
+  });
+}
+
+/** Kill every process listening on port; retry until bind test passes. */
+async function ensurePortFree(port, { maxAttempts = 10 } = {}) {
+  stopOwnedVoiceProcess();
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const pids = listListeningPids(port);
+    if (pids.size === 0 && (await isPortAvailable(port))) {
+      return true;
+    }
+
+    for (const pid of pids) {
+      killPid(pid);
+    }
+
+    await sleep(900 + attempt * 200);
+
+    if (pids.size === 0 && (await isPortAvailable(port))) {
+      return true;
+    }
+  }
+
+  const remaining = listListeningPids(port);
+  if (remaining.size > 0) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[axon-electron] Port ${port} still in use by PID(s): ${[...remaining].join(", ")}`,
+    );
+  }
+  return false;
+}
+
+/** Prefer high ports — 8010 is often stuck with unkillable ghost listeners on Windows. */
+const PORT_CANDIDATES = [18010, 18011, 18012, 18013, 8010, 8011, 8012, 8013];
+
+async function tryStartOnPort(port) {
   const url = `http://127.0.0.1:${port}`;
 
   if (voiceProcess && voiceProcess.exitCode === null) {
-    return { ok: true, url, reused: !voiceProcessOwned };
+    stopOwnedVoiceProcess();
   }
 
-  if (await checkVoiceHealth(url)) {
+  if (await isBackendUsable(url)) {
     // eslint-disable-next-line no-console
     console.info(`[axon-electron] Reusing existing voice backend at ${url}`);
+    const started = await httpPost(`${url}/api/v1/voice/start`);
+    if (started) {
+      // eslint-disable-next-line no-console
+      console.info("[axon-electron] Voice pipeline restarted on reused backend");
+    }
     return { ok: true, url, reused: true };
   }
 
-  freePort(port);
+  const voiceAlive = await checkVoiceHealth(url);
+  if (voiceAlive && !(await checkBackendCapabilities(url))) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[axon-electron] Port ${port} has outdated backend (no music API) — skipping`,
+    );
+    throw new Error(`Port ${port} outdated`);
+  }
+
+  if (!(await isPortAvailable(port))) {
+    const freed = await ensurePortFree(port, { maxAttempts: 2 });
+    if (!freed) {
+      throw new Error(`Port ${port} is still in use`);
+    }
+  }
 
   const backendDir = resolveBackendDir();
   const python = resolvePython(backendDir);
@@ -157,12 +290,27 @@ async function startVoiceServer(port = 8010) {
     ...process.env,
     AXON_VOICE_PORT: String(port),
     AXON_VOICE_LOCAL_MIC: "true",
+    LOG_LEVEL: process.env.LOG_LEVEL || "INFO",
   };
 
   voiceProcessOwned = true;
   voiceProcess = spawn(
     python,
-    ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", String(port)],
+    [
+      "-m",
+      "uvicorn",
+      "app.main:app",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(port),
+      "--ws-ping-interval",
+      "30",
+      "--ws-ping-timeout",
+      "120",
+      "--timeout-keep-alive",
+      "75",
+    ],
     {
       cwd: backendDir,
       env,
@@ -188,9 +336,10 @@ async function startVoiceServer(port = 8010) {
   try {
     await waitForHealth(url);
   } catch (error) {
-    if (await checkVoiceHealth(url)) {
+    if (await isBackendUsable(url)) {
       return { ok: true, url, reused: true };
     }
+    stopOwnedVoiceProcess();
     throw error;
   }
 
@@ -204,7 +353,7 @@ async function startVoiceServer(port = 8010) {
   }
 
   if (voiceProcess && voiceProcess.exitCode !== null) {
-    if (await checkVoiceHealth(url)) {
+    if (await isBackendUsable(url)) {
       return { ok: true, url, reused: true };
     }
     throw new Error("Voice backend process exited during startup.");
@@ -213,15 +362,41 @@ async function startVoiceServer(port = 8010) {
   return { ok: true, url, reused: false };
 }
 
+async function startVoiceServer(preferredPort = 18010) {
+  const ports = [
+    preferredPort,
+    ...PORT_CANDIDATES.filter((candidate) => candidate !== preferredPort),
+  ];
+
+  let lastError = null;
+  for (const port of ports) {
+    try {
+      // eslint-disable-next-line no-console
+      console.info(`[axon-electron] Trying voice backend on port ${port}…`);
+      return await tryStartOnPort(port);
+    } catch (error) {
+      lastError = error;
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[axon-electron] Port ${port} failed: ${error instanceof Error ? error.message : error}`,
+      );
+      stopOwnedVoiceProcess();
+    }
+  }
+
+  throw lastError ?? new Error("Could not start voice backend on any port.");
+}
+
 function stopVoiceServer() {
-  if (!voiceProcess || !voiceProcessOwned) return;
-  voiceProcess.kill();
-  voiceProcess = null;
-  voiceProcessOwned = false;
+  stopOwnedVoiceProcess();
 }
 
 module.exports = {
   startVoiceServer,
   stopVoiceServer,
   checkVoiceHealth,
+  checkBackendCapabilities,
+  isBackendUsable,
+  ensurePortFree,
+  listListeningPids,
 };

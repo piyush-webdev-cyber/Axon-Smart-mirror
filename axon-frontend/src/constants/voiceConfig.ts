@@ -7,13 +7,16 @@
  */
 
 /** Spoken assistant persona (not the product name). */
-export const VOICE_ASSISTANT_NAME = "Nexa";
+export const VOICE_ASSISTANT_NAME = "Jarvis";
 
-/** Wake word that activates the voice pipeline. */
-export const WAKE_WORD = VOICE_ASSISTANT_NAME;
+/** Primary wake phrase shown in UI. */
+export const WAKE_WORD = "hey jarvis";
+
+/** Alternate wake words accepted by the browser listener. */
+export const WAKE_WORD_ALIASES = ["hey jarvis", "jarvis", "axon"] as const;
 
 /** Idle mic label. */
-export const SAY_WAKE_WORD_LABEL = `Say ${WAKE_WORD}`;
+export const SAY_WAKE_WORD_LABEL = `Say "${WAKE_WORD}" or Axon`;
 
 /** Shown when the always-on listener is armed. */
 export const LISTENING_FOR_WAKE_LABEL = `Listening for ${WAKE_WORD}`;
@@ -26,21 +29,14 @@ export const LISTENING_COMMAND_LABEL = "Recording";
 
 /** Case-insensitive whole-word match for wake detection in STT transcripts. */
 export function buildWakeWordPattern(): RegExp {
-  return new RegExp(`\\b${escapeRegExp(WAKE_WORD)}\\b`, "i");
+  return /\b(hey[\s,]+jarvis|jarvis|axon|nexa)\b/i;
 }
 
 /** Strips wake word prefix from a command transcript. */
 export function buildWakePrefixPattern(): RegExp {
-  return new RegExp(`^${escapeRegExp(WAKE_WORD)}[,\\s!:.-]*`, "i");
+  return /^(?:hey[\s,]+jarvis|jarvis|axon|nexa)[,\s!:.-]*/i;
 }
 
 export function stripWakeWordPrefix(transcript: string): string {
-  return transcript
-    .replace(buildWakePrefixPattern(), "")
-    .replace(/^hey[\s,]+jarvis[\s,!.:.-]*/i, "")
-    .trim();
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return transcript.replace(buildWakePrefixPattern(), "").trim();
 }

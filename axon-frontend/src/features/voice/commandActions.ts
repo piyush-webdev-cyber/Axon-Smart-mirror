@@ -1,9 +1,8 @@
-/** Execute voice command actions via React Router and store triggers. */
+/** Legacy bridge — delegates to the offline intent dispatcher. */
 
 import type { NavigateFunction } from "react-router-dom";
-import { ROUTES } from "@/constants/routes";
-import { executeMusicVoiceAction, isMusicVoiceAction } from "@/features/music/musicVoiceActions";
-import { useAppStore } from "@/store";
+import { executeIntent, voiceActionToIntent } from "@/features/voice/intentDispatcher";
+import type { IntentPayload } from "@/features/voice/intentEngine";
 import type { VoiceAction, VoiceProcessResult } from "@/types/voiceAssistant";
 
 export function executeVoiceAction(
@@ -12,44 +11,13 @@ export function executeVoiceAction(
   musicQuery?: string | null,
 ): void {
   if (!action) return;
-
-  if (isMusicVoiceAction(action)) {
-    void executeMusicVoiceAction(action, navigate, musicQuery);
-    return;
-  }
-
-  const store = useAppStore.getState();
-
-  switch (action) {
-    case "open_camera":
-      navigate(ROUTES.camera);
-      break;
-    case "take_photo":
-      navigate(ROUTES.camera);
-      store.requestPhotoCapture();
-      break;
-    case "open_gallery":
-      navigate(ROUTES.gallery);
-      break;
-    case "show_gallery_qr":
-      navigate(`${ROUTES.gallery}?qr=1`);
-      store.requestGalleryQr();
-      break;
-    case "delete_photo":
-      navigate(ROUTES.gallery);
-      store.requestPhotoDelete();
-      break;
-    case "open_interview":
-      navigate(ROUTES.home);
-      break;
-    case "go_home":
-      navigate(ROUTES.home);
-      break;
-    default:
-      break;
-  }
+  const payload: IntentPayload = {};
+  if (musicQuery) payload.musicQuery = musicQuery;
+  executeIntent(voiceActionToIntent(action), navigate, payload);
 }
 
 export function executeVoiceResult(result: VoiceProcessResult, navigate: NavigateFunction): void {
   executeVoiceAction(result.action, navigate, result.musicQuery ?? null);
 }
+
+export { executeIntent } from "@/features/voice/intentDispatcher";

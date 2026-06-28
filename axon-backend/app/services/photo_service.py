@@ -38,12 +38,13 @@ class PhotoService:
 
     @classmethod
     def _activate_dev_mode(cls, reason: str) -> bool:
-        if not settings.debug:
+        """Use in-memory photo store when Supabase schema/storage is unavailable locally."""
+        if settings.env == "production" and not settings.debug:
             return False
         if not cls._dev_mode:
             logger.warning(
-                "%s Using in-memory photo store (dev only). "
-                "Apply axon-backend/migrations for production.",
+                "%s Using in-memory photo store (local dev). "
+                "Run axon-backend/migrations or SUPABASE_SETUP.sql for persistent photos.",
                 reason,
             )
             cls._dev_mode = True
@@ -55,8 +56,13 @@ class PhotoService:
             code = getattr(exc, "code", None)
             if code == "PGRST205":
                 return True
-        message = str(getattr(exc, "message", exc))
-        return "PGRST205" in message or "photos" in message.lower()
+            payload = getattr(exc, "json", None) or getattr(exc, "details", None)
+            if isinstance(payload, dict) and payload.get("code") == "PGRST205":
+                return True
+        if isinstance(exc, dict) and exc.get("code") == "PGRST205":
+            return True
+        text = str(exc)
+        return "PGRST205" in text or "could not find the table" in text.lower()
 
     @staticmethod
     def _bytes_to_data_url(data: bytes) -> str:

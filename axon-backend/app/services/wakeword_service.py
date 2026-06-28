@@ -594,4 +594,4 @@ def effective_listen_phrase(model_path: str | None = None) -> str:
         return "alexa"
     if "mycroft" in path:
         return "hey mycroft"
-    return "Nexa"
+    return "hey jarvis"

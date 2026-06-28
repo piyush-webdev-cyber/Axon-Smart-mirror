@@ -26,7 +26,7 @@ except ImportError as exc:  # pragma: no cover
 
 SAMPLE_RATE = 16_000
 BLOCK_SIZE = 4096
-_LOG_EVERY_CHUNKS = 25
+_LOG_EVERY_CHUNKS = 500
 
 
 class LocalMicService:

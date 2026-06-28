@@ -1,4 +1,4 @@
-import { deviceWsUrl } from "@/utils/deviceApiBase";
+import { mirrorWsUrl } from "@/utils/apiRouting";
 import { WS_EVENTS } from "@/constants/wsEvents";
 import type {
   WsConnectionStatus,
@@ -29,7 +29,7 @@ class WebSocketClient {
   private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-  private readonly heartbeatInterval = 25_000;
+  private readonly heartbeatInterval = 45_000;
 
   private shouldReconnect = false;
 
@@ -38,9 +38,9 @@ class WebSocketClient {
 
   constructor() {}
 
-  /** Resolve WS URL on each connect — hosted device link uses Railway directly. */
+  /** Resolve WS URL on each connect — Electron uses local :8010; Vercel uses same-origin proxy. */
   private getUrl(): string {
-    return deviceWsUrl();
+    return mirrorWsUrl();
   }
 
   getStatus(): WsConnectionStatus {
@@ -59,9 +59,13 @@ class WebSocketClient {
       return;
     }
 
-    const url = this.getUrl();
+    void this.openSocket();
+  }
+
+  private async openSocket(): Promise<void> {
+    const url = await this.buildUrl();
     // eslint-disable-next-line no-console
-    console.info("[axon][websocket] connecting", { url });
+    console.info("[axon][websocket] connecting", { url: url.replace(/mirror_token=[^&]+/, "mirror_token=***") });
 
     if (!url.startsWith("ws://") && !url.startsWith("wss://")) {
       // eslint-disable-next-line no-console
@@ -219,7 +223,31 @@ class WebSocketClient {
       1000 * 2 ** this.reconnectAttempts,
     );
     this.reconnectAttempts += 1;
-    this.reconnectTimer = setTimeout(() => this.connect(), delay);
+    this.reconnectTimer = setTimeout(() => {
+      void this.openSocket();
+    }, delay);
+  }
+
+  private async buildUrl(): Promise<string> {
+    const base = this.getUrl();
+    try {
+      const { getMirrorToken } = await import("@/utils/authToken");
+      const mirrorToken = getMirrorToken();
+      if (mirrorToken) {
+        const sep = base.includes("?") ? "&" : "?";
+        return `${base}${sep}mirror_token=${encodeURIComponent(mirrorToken)}`;
+      }
+
+      const { getAccessToken } = await import("@/services/supabaseClient");
+      const token = await getAccessToken();
+      if (token) {
+        const sep = base.includes("?") ? "&" : "?";
+        return `${base}${sep}token=${encodeURIComponent(token)}`;
+      }
+    } catch {
+      /* connect anonymously */
+    }
+    return base;
   }
 
   private clearReconnect(): void {

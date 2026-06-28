@@ -9,6 +9,26 @@ import {
 import type { WeatherSnapshot, WeatherStatus } from "./weather.types";
 import { useWeatherLocation } from "./useGeolocation";
 
+const WEATHER_CACHE_KEY = "axon_weather_cache";
+
+function readWeatherCache(): WeatherSnapshot | undefined {
+  try {
+    const raw = localStorage.getItem(WEATHER_CACHE_KEY);
+    if (!raw) return undefined;
+    return JSON.parse(raw) as WeatherSnapshot;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeWeatherCache(snapshot: WeatherSnapshot): void {
+  try {
+    localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify(snapshot));
+  } catch {
+    /* quota or private mode */
+  }
+}
+
 export interface UseWeatherResult {
   data: WeatherSnapshot | undefined;
   status: WeatherStatus;
@@ -31,29 +51,41 @@ export function useWeather(): UseWeatherResult {
   const query = useQuery({
     queryKey: queryKeys.weather(buildQueryKey(coords, cityFallback)),
     queryFn: async (): Promise<WeatherSnapshot> => {
+      let snapshot: WeatherSnapshot;
       if (coords) {
-        return fetchCurrentWeather(coords.lat, coords.lon);
-      }
-      if (cityFallback) {
+        snapshot = await fetchCurrentWeather(coords.lat, coords.lon);
+      } else if (cityFallback) {
         try {
-          return await fetchCurrentWeatherByCity(cityFallback);
+          snapshot = await fetchCurrentWeatherByCity(cityFallback);
         } catch {
-          return fetchCurrentWeatherAuto();
+          snapshot = await fetchCurrentWeatherAuto();
         }
+      } else {
+        snapshot = await fetchCurrentWeatherAuto();
       }
-      return fetchCurrentWeatherAuto();
+      writeWeatherCache(snapshot);
+      return snapshot;
     },
     enabled: !geoLoading,
     staleTime: 10 * 60_000,
     refetchInterval: 15 * 60_000,
     retry: 1,
+    placeholderData: readWeatherCache,
   });
 
   if (geoLoading || query.isLoading) {
+    const cached = readWeatherCache();
+    if (cached) {
+      return { data: cached, status: "ready", isPlaceholder: true };
+    }
     return { data: undefined, status: "loading", isPlaceholder: false };
   }
 
   if (query.isError) {
+    const cached = readWeatherCache();
+    if (cached) {
+      return { data: cached, status: "ready", isPlaceholder: true };
+    }
     return { data: undefined, status: "error", isPlaceholder: false };
   }
 

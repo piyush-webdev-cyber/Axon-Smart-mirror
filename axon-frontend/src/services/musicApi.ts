@@ -5,12 +5,22 @@ import { normalizeMusicState, normalizeTrack } from "@/types/music";
 import { getAuthHeaders } from "@/utils/authToken";
 import { restApiBase } from "@/utils/restApiBase";
 
-function parseError(body: unknown, fallback: string): string {
+function parseError(body: unknown, fallback: string, status?: number): string {
   if (typeof body === "object" && body) {
-    const record = body as { error?: { message?: string }; detail?: string };
+    const record = body as {
+      error?: { message?: string; code?: string };
+      detail?: string;
+    };
+    const code = record.error?.code;
+    const message = record.error?.message;
+    if (code === "http_error" && message === "Not Found" && status === 404) {
+      return "Music API not found. Restart Electron — it will auto-pick port 8011 if 8010 is stuck.";
+    }
+    if (code === "not_found" && message) return message;
     if (record.error?.message) return record.error.message;
     if (typeof record.detail === "string") return record.detail;
   }
+  if (status === 401) return "Sign in or link your phone to use music.";
   return fallback;
 }
 
@@ -25,7 +35,7 @@ async function musicFetch(path: string, init: RequestInit = {}): Promise<Respons
 async function parseState(response: Response): Promise<MusicState> {
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(parseError(body, "Music request failed"));
+    throw new Error(parseError(body, "Music request failed", response.status));
   }
   const raw = (await response.json()) as Record<string, unknown>;
   return normalizeMusicState(raw);
