@@ -4,6 +4,7 @@ export const ROUTES = {
   settings: "/settings",
   camera: "/camera",
   gallery: "/gallery",
+  music: "/music",
   gallerySession: "/gallery/session/:token",
   profile: "/profile/:id",
   link: "/link/:code",

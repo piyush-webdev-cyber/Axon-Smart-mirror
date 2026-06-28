@@ -34,10 +34,20 @@ export const WS_EVENTS = {
   // Legacy alias
   voiceState: "voice.state",
 
+  // Phase 6 — Music
+  musicStarted: "music.started",
+  musicPaused: "music.paused",
+  musicResumed: "music.resumed",
+  musicProgress: "music.progress",
+  musicFinished: "music.finished",
+  musicQueueUpdated: "music.queue.updated",
+  musicVolumeChanged: "music.volume.changed",
+  musicSearchCompleted: "music.search.completed",
+  musicState: "music.state",
+
   // Reserved for future phases
   interviewMessage: "interview.message",
   faceDetected: "face.detected",
-  musicState: "music.state",
 } as const;
 
 export type WsEventType = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];

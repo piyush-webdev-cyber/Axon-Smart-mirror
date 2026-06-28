@@ -44,7 +44,17 @@ class WsEvent(StrEnum):
     # Legacy aliases (kept for backward compatibility)
     VOICE_STATE = "voice.state"
 
+    # Phase 6 — Music
+    MUSIC_STARTED = "music.started"
+    MUSIC_PAUSED = "music.paused"
+    MUSIC_RESUMED = "music.resumed"
+    MUSIC_PROGRESS = "music.progress"
+    MUSIC_FINISHED = "music.finished"
+    MUSIC_QUEUE_UPDATED = "music.queue.updated"
+    MUSIC_VOLUME_CHANGED = "music.volume.changed"
+    MUSIC_SEARCH_COMPLETED = "music.search.completed"
+    MUSIC_STATE = "music.state"
+
     # Reserved for future phases
     INTERVIEW_MESSAGE = "interview.message"
     FACE_DETECTED = "face.detected"
-    MUSIC_STATE = "music.state"

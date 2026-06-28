@@ -78,3 +78,13 @@ def get_gallery_session_service():
     if not admin_client:
         raise AxonError("Supabase admin client not configured", status_code=500)
     return GallerySessionService(admin_client)
+
+
+def get_music_service():
+    """Get music service with admin client."""
+    from app.services.music_service import MusicService
+
+    admin_client = get_supabase_admin()
+    if not admin_client:
+        raise AxonError("Supabase admin client not configured", status_code=500)
+    return MusicService(admin_client)

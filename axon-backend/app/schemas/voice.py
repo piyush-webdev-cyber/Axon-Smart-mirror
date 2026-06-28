@@ -13,7 +13,20 @@ VoiceAction = Literal[
     "open_camera",
     "open_gallery",
     "open_interview",
+    "open_music",
+    "close_music",
     "play_music",
+    "pause_music",
+    "resume_music",
+    "stop_music",
+    "next_track",
+    "previous_track",
+    "volume_up",
+    "volume_down",
+    "mute_music",
+    "unmute_music",
+    "shuffle_music",
+    "repeat_music",
     "go_home",
     "take_photo",
     "show_gallery_qr",
@@ -31,6 +44,7 @@ class VoiceProcessRequest(CamelModel):
 class VoiceProcessResponse(CamelModel):
     reply: str
     action: VoiceAction = None
+    music_query: str | None = None
     source: str = "router"
 
 

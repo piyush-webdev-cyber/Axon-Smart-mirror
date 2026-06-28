@@ -8,7 +8,8 @@ import { useNavigate } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { WS_EVENTS } from "@/constants/wsEvents";
 import { useAuth } from "@/context/AuthProvider";
-import { executeVoiceAction } from "@/features/voice/commandActions";
+import { executeVoiceResult } from "@/features/voice/commandActions";
+import { isMusicVoiceAction } from "@/features/music/musicVoiceActions";
 import {
   isMicGranted,
   isVoiceEngineAvailable,
@@ -87,7 +88,7 @@ export function useVoicePipeline(): void {
     async () => {},
   );
   const nativeModeRef = useRef(isNativeVoiceEngine());
-  const pendingActionRef = useRef<VoiceAction | null>(null);
+  const pendingActionRef = useRef<VoiceProcessResult | null>(null);
 
   useEffect(() => {
     const unsub = useAppStore.subscribe((state, prev) => {
@@ -115,8 +116,8 @@ export function useVoicePipeline(): void {
   }, []);
 
   const runImmediateAction = useCallback(
-    (action: VoiceAction | null | undefined) => {
-      if (!action) return;
+    (result: VoiceProcessResult | null | undefined) => {
+      if (!result?.action) return;
       const immediateActions: VoiceAction[] = [
         "take_photo",
         "open_camera",
@@ -124,17 +125,28 @@ export function useVoicePipeline(): void {
         "show_gallery_qr",
         "go_home",
         "delete_photo",
+        "pause_music",
+        "resume_music",
+        "stop_music",
+        "next_track",
+        "previous_track",
+        "volume_up",
+        "volume_down",
+        "mute_music",
+        "unmute_music",
+        "shuffle_music",
+        "repeat_music",
       ];
-      if (immediateActions.includes(action)) {
-        executeVoiceAction(action, navigate);
+      if (immediateActions.includes(result.action) || isMusicVoiceAction(result.action)) {
+        executeVoiceResult(result, navigate);
       }
     },
     [navigate],
   );
 
   const finishSpeaking = useCallback(
-    (action: VoiceAction | null | undefined) => {
-      if (action) {
+    (result: VoiceProcessResult | null | undefined) => {
+      if (result?.action) {
         const immediateActions: VoiceAction[] = [
           "take_photo",
           "open_camera",
@@ -142,9 +154,20 @@ export function useVoicePipeline(): void {
           "show_gallery_qr",
           "go_home",
           "delete_photo",
+          "pause_music",
+          "resume_music",
+          "stop_music",
+          "next_track",
+          "previous_track",
+          "volume_up",
+          "volume_down",
+          "mute_music",
+          "unmute_music",
+          "shuffle_music",
+          "repeat_music",
         ];
-        if (!immediateActions.includes(action)) {
-          executeVoiceAction(action, navigate);
+        if (!immediateActions.includes(result.action) && !isMusicVoiceAction(result.action)) {
+          executeVoiceResult(result, navigate);
         }
       }
       dispatch("done");
@@ -226,7 +249,7 @@ export function useVoicePipeline(): void {
       dispatch("responseReady");
       emit(WS_EVENTS.voiceSpeaking, { reply: result.reply });
 
-      runImmediateAction(result.action);
+      runImmediateAction(result);
 
       try {
         await speak(result.reply);
@@ -234,7 +257,7 @@ export function useVoicePipeline(): void {
         /* TTS failure should not block returning to idle */
       }
 
-      finishSpeaking(result.action);
+      finishSpeaking(result);
       if (!nativeModeRef.current) armWakeWord();
     },
     [armWakeWord, dispatch, emit, finishSpeaking, runImmediateAction, setReply],
@@ -444,7 +467,10 @@ export function useVoicePipeline(): void {
         case "response_ready": {
           setReply(event.reply);
           setStatusLine("Speaking response…");
-          pendingActionRef.current = (event.action as VoiceAction | null | undefined) ?? null;
+          pendingActionRef.current = {
+            reply: event.reply,
+            action: (event.action as VoiceAction | null | undefined) ?? null,
+          };
           emit(WS_EVENTS.voiceResponse, { reply: event.reply, action: event.action });
           runImmediateAction(pendingActionRef.current);
           break;

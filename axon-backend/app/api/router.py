@@ -9,6 +9,7 @@ from app.api.routes import (
     devices,
     gallery,
     health,
+    music,
     photos,
     system,
     users,
@@ -33,6 +34,9 @@ api_router.include_router(gallery.router)
 api_router.include_router(weather.router)
 api_router.include_router(voice.router)
 api_router.include_router(voice_desktop.router)
+
+# Phase 6 — Music
+api_router.include_router(music.router)
 
 # Reserved future-feature placeholders (HTTP 501)
 for router in placeholder_routers:

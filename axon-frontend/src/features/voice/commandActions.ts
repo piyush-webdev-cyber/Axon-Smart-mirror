@@ -2,11 +2,21 @@
 
 import type { NavigateFunction } from "react-router-dom";
 import { ROUTES } from "@/constants/routes";
+import { executeMusicVoiceAction, isMusicVoiceAction } from "@/features/music/musicVoiceActions";
 import { useAppStore } from "@/store";
-import type { VoiceAction } from "@/types/voiceAssistant";
+import type { VoiceAction, VoiceProcessResult } from "@/types/voiceAssistant";
 
-export function executeVoiceAction(action: VoiceAction, navigate: NavigateFunction): void {
+export function executeVoiceAction(
+  action: VoiceAction,
+  navigate: NavigateFunction,
+  musicQuery?: string | null,
+): void {
   if (!action) return;
+
+  if (isMusicVoiceAction(action)) {
+    void executeMusicVoiceAction(action, navigate, musicQuery);
+    return;
+  }
 
   const store = useAppStore.getState();
 
@@ -35,9 +45,11 @@ export function executeVoiceAction(action: VoiceAction, navigate: NavigateFuncti
     case "go_home":
       navigate(ROUTES.home);
       break;
-    case "play_music":
-      break;
     default:
       break;
   }
+}
+
+export function executeVoiceResult(result: VoiceProcessResult, navigate: NavigateFunction): void {
+  executeVoiceAction(result.action, navigate, result.musicQuery ?? null);
 }

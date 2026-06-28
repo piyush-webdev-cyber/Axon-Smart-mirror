@@ -11,6 +11,7 @@ const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 const CameraPage = lazy(() => import("@/pages/CameraPage"));
 const GalleryPage = lazy(() => import("@/pages/GalleryPage"));
+const MusicPage = lazy(() => import("@/pages/MusicPage"));
 const GallerySessionPage = lazy(() => import("@/pages/GallerySessionPage"));
 const LinkPage = lazy(() => import("@/pages/LinkPage"));
 const LoginPage = lazy(() => import("@/pages/auth/LoginPage"));
@@ -55,6 +56,14 @@ export const router = createBrowserRouter([
         element: lazyPage(
           <RequireAuth>
             <GalleryPage />
+          </RequireAuth>,
+        ),
+      },
+      {
+        path: "music",
+        element: lazyPage(
+          <RequireAuth>
+            <MusicPage />
           </RequireAuth>,
         ),
       },

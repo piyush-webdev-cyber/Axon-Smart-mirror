@@ -8,13 +8,15 @@ import { createVoiceSlice, type VoiceSlice } from "./slices/voiceSlice";
 import { createSystemSlice, type SystemSlice } from "./slices/systemSlice";
 import { createCameraSlice, type CameraSlice } from "./slices/cameraSlice";
 import { createMirrorAuthSlice, type MirrorAuthSlice } from "./slices/mirrorAuthSlice";
+import { createMusicSlice, type MusicSlice } from "./slices/musicSlice";
 
 export type AppStore = ThemeSlice &
   ConnectionSlice &
   VoiceSlice &
   SystemSlice &
   CameraSlice &
-  MirrorAuthSlice;
+  MirrorAuthSlice &
+  MusicSlice;
 
 export const useAppStore = create<AppStore>()((...args) => ({
   ...createThemeSlice(...args),
@@ -23,4 +25,5 @@ export const useAppStore = create<AppStore>()((...args) => ({
   ...createSystemSlice(...args),
   ...createCameraSlice(...args),
   ...createMirrorAuthSlice(...args),
+  ...createMusicSlice(...args),
 }));

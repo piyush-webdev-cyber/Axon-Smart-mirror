@@ -27,6 +27,26 @@ def _contains_any(text: str, phrases: tuple[str, ...]) -> bool:
     return any(phrase in text for phrase in phrases)
 
 
+def _extract_music_query(cleaned: str, lowered: str) -> str | None:
+    """Pull song/artist query from natural language play commands."""
+    prefixes = (
+        "play the song ",
+        "play song ",
+        "play music ",
+        "play songs by ",
+        "play songs from ",
+        "play ",
+    )
+    for prefix in prefixes:
+        if lowered.startswith(prefix):
+            query = cleaned[len(prefix) :].strip()
+            for suffix in (" songs", " song", " music", " playlist"):
+                if query.lower().endswith(suffix):
+                    query = query[: -len(suffix)].strip()
+            return query or None
+    return None
+
+
 async def process_voice_command(
     transcript: str,
     *,
@@ -133,6 +153,68 @@ async def process_voice_command(
     if _contains_any(lowered, ("go home", "take me home", "home screen")):
         return {"reply": "Going home.", "action": "go_home", "source": "router"}
 
+    # --- Music (Phase 6) -----------------------------------------------------
+
+    if _contains_any(lowered, ("open music", "music mode", "launch music")):
+        return {"reply": "Opening music.", "action": "open_music", "source": "router"}
+
+    if _contains_any(lowered, ("close music", "exit music", "stop music mode")):
+        return {"reply": "Closing music.", "action": "close_music", "source": "router"}
+
+    if _contains_any(lowered, ("pause music", "pause the music", "pause song")):
+        return {"reply": "Pausing music.", "action": "pause_music", "source": "router"}
+
+    if _contains_any(lowered, ("resume music", "continue music", "unpause music")):
+        return {"reply": "Resuming music.", "action": "resume_music", "source": "router"}
+
+    if _contains_any(lowered, ("stop music", "stop the music", "stop song")):
+        return {"reply": "Stopping music.", "action": "stop_music", "source": "router"}
+
+    if _contains_any(lowered, ("next song", "next track", "skip song", "skip track")):
+        return {"reply": "Playing next song.", "action": "next_track", "source": "router"}
+
+    if _contains_any(
+        lowered,
+        ("previous song", "previous track", "last song", "go back", "back one song"),
+    ):
+        return {"reply": "Playing previous song.", "action": "previous_track", "source": "router"}
+
+    if _contains_any(lowered, ("increase volume", "volume up", "turn it up", "louder")):
+        return {"reply": "Increasing volume.", "action": "volume_up", "source": "router"}
+
+    if _contains_any(lowered, ("decrease volume", "volume down", "turn it down", "quieter")):
+        return {"reply": "Decreasing volume.", "action": "volume_down", "source": "router"}
+
+    if lowered in {"mute", "mute music", "mute the music"} or "mute music" in lowered:
+        return {"reply": "Muting music.", "action": "mute_music", "source": "router"}
+
+    if _contains_any(lowered, ("unmute", "unmute music")):
+        return {"reply": "Unmuting music.", "action": "unmute_music", "source": "router"}
+
+    if _contains_any(lowered, ("shuffle", "shuffle songs", "shuffle music")):
+        return {"reply": "Shuffling songs.", "action": "shuffle_music", "source": "router"}
+
+    if _contains_any(lowered, ("repeat song", "repeat track", "repeat music", "repeat")):
+        return {"reply": "Toggling repeat.", "action": "repeat_music", "source": "router"}
+
+    if lowered.startswith("play ") or _contains_any(
+        lowered,
+        ("play music", "play songs", "play some music", "start music"),
+    ):
+        query = _extract_music_query(cleaned, lowered)
+        if query:
+            return {
+                "reply": f"Playing {query}.",
+                "action": "play_music",
+                "music_query": query,
+                "source": "router",
+            }
+        return {
+            "reply": "Playing recommended music.",
+            "action": "play_music",
+            "source": "router",
+        }
+
     if _contains_any(lowered, ("who am i", "what's my name", "what is my name")):
         if display_name:
             return {
@@ -149,13 +231,6 @@ async def process_voice_command(
         return {
             "reply": "You're using Axon as a guest. Link your phone to personalize your mirror.",
             "action": None,
-            "source": "router",
-        }
-
-    if _contains_any(lowered, ("play music", "start music")):
-        return {
-            "reply": "Music isn't available yet, but I'll remember you asked.",
-            "action": "play_music",
             "source": "router",
         }
 

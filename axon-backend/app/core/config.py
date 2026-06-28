@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     api_prefix: str = Field(default="/api/v1", alias="AXON_API_PREFIX")
     version: str = Field(default="0.1.0", alias="AXON_VERSION")
     service_name: str = "axon-backend"
-    phase: int = 5
+    phase: int = 6
 
     # --- CORS --------------------------------------------------------------
     # Type is str | list[str] to allow env var to be comma-separated or JSON
@@ -67,6 +67,9 @@ class Settings(BaseSettings):
 
     # --- Weather -----------------------------------------------------------
     openweather_api_key: str = Field(default="", alias="OPENWEATHER_API_KEY")
+
+    # --- Music (YouTube) ---------------------------------------------------
+    youtube_api_key: str = Field(default="", alias="YOUTUBE_API_KEY")
 
     # --- Native voice (Electron / Raspberry Pi) ----------------------------
     voice_wakeword_model_path: str = Field(default="", alias="AXON_WAKEWORD_MODEL_PATH")

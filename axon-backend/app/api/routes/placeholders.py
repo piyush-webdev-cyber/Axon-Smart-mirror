@@ -42,11 +42,9 @@ interviews_router = _make_placeholder(
     "/interviews", "interviews", "InterviewGPT", phase=5
 )
 face_router = _make_placeholder("/face", "face", "Face Recognition", phase=4)
-music_router = _make_placeholder("/music", "music", "Music Playback", phase=6)
 
 placeholder_routers = [
     photos_router,
     interviews_router,
     face_router,
-    music_router,
 ]

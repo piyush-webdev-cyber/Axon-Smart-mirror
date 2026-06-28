@@ -22,7 +22,7 @@ const NAV_ITEMS: SidebarNavItem[] = [
   { label: "Camera", icon: Camera, to: ROUTES.camera },
   { label: "Interview", icon: Briefcase },
   { label: "Gallery", icon: Image, to: ROUTES.gallery },
-  { label: "Songs", icon: Music },
+  { label: "Music", icon: Music, to: ROUTES.music },
   { label: "Settings", icon: Settings, to: ROUTES.settings },
 ];
 

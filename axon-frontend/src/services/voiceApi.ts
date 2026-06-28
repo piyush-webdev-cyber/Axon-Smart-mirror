@@ -40,6 +40,7 @@ export async function processVoiceTranscript(
   return {
     reply: data.reply,
     action: data.action ?? null,
+    musicQuery: (data as VoiceProcessResult).musicQuery ?? null,
     ...(data.source ? { source: data.source } : {}),
   };
 }

@@ -20,7 +20,7 @@ def test_health_ok() -> None:
 def test_system_info() -> None:
     res = client.get("/api/v1/system/info")
     assert res.status_code == 200
-    assert res.json()["phase"] == 5
+    assert res.json()["phase"] == 6
 
 
 def test_protected_requires_auth() -> None:
@@ -56,3 +56,14 @@ def test_voice_show_gallery_qr() -> None:
     )
     assert res.status_code == 200
     assert res.json()["action"] == "show_gallery_qr"
+
+
+def test_voice_play_music_query() -> None:
+    res = client.post(
+        "/api/v1/voice/process",
+        json={"transcript": "Nexa, play Believer"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["action"] == "play_music"
+    assert body.get("musicQuery") == "Believer"
